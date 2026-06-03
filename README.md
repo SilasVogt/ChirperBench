@@ -22,6 +22,7 @@ xdg-open ./site/index.html
 
 By default, `run` benchmarks every model from `ollama list`, writes a timestamped directory under `./runs`, and refreshes `./site`.
 On Linux, `--telemetry auto` is enabled by default. It currently captures AMD GPU telemetry from `amdgpu` sysfs counters when available, including power draw, VRAM use, and GPU busy percent. Use `--telemetry off` to disable it.
+The run command prints progress after every model/case pair, including elapsed time, average time per result, ETA, last result time, and the current stage (`ollama run`, `ollama stop`, judging, or artifact writing). During long Ollama or judge calls, it also prints a heartbeat every 30 seconds by default; use `--progress-interval 0` to disable that or set another interval in seconds.
 
 Useful narrower run:
 
