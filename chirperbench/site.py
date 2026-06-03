@@ -145,7 +145,7 @@ INDEX_TEMPLATE = r"""<!doctype html>
     }
     .stats {
       display: grid;
-      grid-template-columns: repeat(4, minmax(160px, 1fr));
+      grid-template-columns: repeat(5, minmax(140px, 1fr));
       gap: 12px;
       margin-bottom: 22px;
     }
@@ -158,7 +158,8 @@ INDEX_TEMPLATE = r"""<!doctype html>
     }
     .stat:nth-child(2) { background: var(--green); }
     .stat:nth-child(3) { background: var(--cyan); }
-    .stat:nth-child(4) { background: var(--red); }
+    .stat:nth-child(4) { background: var(--lavender); }
+    .stat:nth-child(5) { background: var(--red); }
     .stat .label {
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       font-size: 0.74rem;
@@ -178,6 +179,73 @@ INDEX_TEMPLATE = r"""<!doctype html>
     }
     section {
       min-width: 0;
+    }
+    .viz-wrap {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 12px;
+      border: 2px solid var(--ink);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      padding: 13px;
+    }
+    .plot-head {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.86rem;
+    }
+    .plot-card {
+      min-height: 380px;
+      border: 1px solid var(--line);
+      background:
+        linear-gradient(90deg, rgba(24,23,19,0.045) 1px, transparent 1px) 0 0 / 48px 48px,
+        linear-gradient(0deg, rgba(24,23,19,0.045) 1px, transparent 1px) 0 0 / 48px 48px,
+        #fffdf7;
+      overflow: hidden;
+    }
+    .scatter {
+      display: block;
+      width: 100%;
+      height: auto;
+      min-height: 360px;
+    }
+    .axis,
+    .gridline {
+      stroke: var(--ink);
+      stroke-width: 1;
+      vector-effect: non-scaling-stroke;
+    }
+    .gridline {
+      opacity: 0.16;
+    }
+    .point {
+      cursor: pointer;
+      stroke: var(--ink);
+      stroke-width: 1.5;
+      vector-effect: non-scaling-stroke;
+      transition: r 120ms ease, opacity 120ms ease;
+    }
+    .point:hover {
+      r: 8;
+      opacity: 0.85;
+    }
+    .axis-label,
+    .point-label {
+      fill: var(--ink);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+    }
+    .point-label {
+      font-weight: 700;
+    }
+    .metric-note {
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.82rem;
     }
     .table-wrap {
       overflow: auto;
@@ -355,6 +423,18 @@ INDEX_TEMPLATE = r"""<!doctype html>
       </section>
 
       <section>
+        <h2>Telemetry Graphs</h2>
+        <div class="viz-wrap">
+          <div class="plot-head">
+            <label for="metricSelect">Score vs</label>
+            <select id="metricSelect" aria-label="Telemetry metric"></select>
+          </div>
+          <div class="plot-card" id="scatterPlot"></div>
+          <div class="metric-note" id="telemetryNote"></div>
+        </div>
+      </section>
+
+      <section>
         <h2>Case Matrix</h2>
         <div class="table-wrap"><table id="matrixTable"></table></div>
       </section>
@@ -372,9 +452,19 @@ INDEX_TEMPLATE = r"""<!doctype html>
     const embedded = JSON.parse(document.getElementById("run-data").textContent);
     const runSelect = document.getElementById("runSelect");
     const filters = document.getElementById("filters");
+    const metricSelect = document.getElementById("metricSelect");
     const selectedErrors = new Set();
     let currentRunId = embedded.runs.length ? embedded.runs[embedded.runs.length - 1].id : "";
     let sortState = { key: "model", dir: "asc" };
+    let scatterMetricKey = "median_latency_seconds";
+    const scatterMetrics = [
+      { key: "median_latency_seconds", label: "median latency", unit: "s" },
+      { key: "median_power_w_avg", label: "average power", unit: "W" },
+      { key: "peak_power_w", label: "peak power", unit: "W" },
+      { key: "median_vram_mb_peak", label: "peak VRAM", unit: "MB" },
+      { key: "median_gpu_busy_percent_avg", label: "average GPU busy", unit: "%" },
+      { key: "error_count", label: "error count", unit: "" }
+    ];
 
     function esc(value) {
       return String(value ?? "").replace(/[&<>"']/g, char => ({
@@ -393,6 +483,11 @@ INDEX_TEMPLATE = r"""<!doctype html>
     function number(value, digits = 2) {
       const num = Number(value || 0);
       return num.toFixed(digits);
+    }
+
+    function metricText(value, unit = "", digits = 1) {
+      if (typeof value !== "number" || Number.isNaN(value)) return "NA";
+      return `${value.toFixed(digits)}${unit}`;
     }
 
     function resultErrors(result) {
@@ -459,6 +554,17 @@ INDEX_TEMPLATE = r"""<!doctype html>
       });
     }
 
+    function setupMetricSelect() {
+      metricSelect.innerHTML = scatterMetrics.map(metric => `
+        <option value="${esc(metric.key)}">${esc(metric.label)}</option>
+      `).join("");
+      metricSelect.value = scatterMetricKey;
+      metricSelect.addEventListener("change", () => {
+        scatterMetricKey = metricSelect.value;
+        renderTelemetry(currentRun());
+      });
+    }
+
     function renderStats(run) {
       const summary = run.summary || {};
       const top = (summary.leaderboard || [])[0] || {};
@@ -467,6 +573,7 @@ INDEX_TEMPLATE = r"""<!doctype html>
         ["run", run.run_id || ""],
         ["top model", top.model || "none"],
         ["results", summary.result_count || 0],
+        ["telemetry", summary.telemetry?.sample_count || 0],
         ["errors", errorTotal]
       ].map(([label, value]) => `
         <div class="stat"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div></div>
@@ -520,6 +627,9 @@ INDEX_TEMPLATE = r"""<!doctype html>
           <td>${bar(number(row.average_score, 2), row.average_score, 100, row.average_score < 70 ? "bad" : "")}</td>
           <td>${bar(pct(row.pass_rate), row.pass_rate, 1, "pass")}</td>
           <td>${bar(`${number(row.median_latency_seconds, 3)}s`, row.median_latency_seconds, maxLatency, "latency")}</td>
+          <td class="num">${metricText(row.median_power_w_avg, "W", 2)}</td>
+          <td class="num">${metricText(row.median_vram_mb_peak, "MB", 1)}</td>
+          <td class="num">${metricText(row.median_gpu_busy_percent_avg, "%", 1)}</td>
           <td class="num">${row.case_count}</td>
           <td class="num">${row.error_count}</td>
         </tr>
@@ -529,9 +639,94 @@ INDEX_TEMPLATE = r"""<!doctype html>
         { key: "score", label: "Score" },
         { key: "pass", label: "Pass Rate" },
         { key: "latency", label: "Latency" },
+        { key: "power", label: "Avg Power" },
+        { key: "vram", label: "Peak VRAM" },
+        { key: "gpu", label: "GPU Busy" },
         { key: "cases", label: "Cases" },
         { key: "errors", label: "Errors" }
       ], rows);
+    }
+
+    function renderTelemetry(run) {
+      const metric = scatterMetrics.find(item => item.key === scatterMetricKey) || scatterMetrics[0];
+      const rows = (run.summary?.models || [])
+        .map(row => ({
+          model: row.model,
+          score: Number(row.average_score || 0),
+          passRate: Number(row.pass_rate || 0),
+          value: modelMetric(row, metric.key),
+          errors: Number(row.error_count || 0)
+        }))
+        .filter(row => typeof row.value === "number" && Number.isFinite(row.value));
+      if (!rows.length) {
+        document.getElementById("scatterPlot").innerHTML = `<div class="empty">No values for ${esc(metric.label)} in this run.</div>`;
+        document.getElementById("telemetryNote").textContent = `Telemetry samples: ${run.summary?.telemetry?.sample_count || 0}`;
+        return;
+      }
+
+      const width = 880;
+      const height = 380;
+      const margin = { left: 76, right: 28, top: 24, bottom: 58 };
+      const xValues = rows.map(row => row.value);
+      let xMin = Math.min(...xValues);
+      let xMax = Math.max(...xValues);
+      if (xMin === xMax) {
+        xMin -= 1;
+        xMax += 1;
+      }
+      const xPad = (xMax - xMin) * 0.08;
+      xMin -= xPad;
+      xMax += xPad;
+      const plotW = width - margin.left - margin.right;
+      const plotH = height - margin.top - margin.bottom;
+      const x = value => margin.left + ((value - xMin) / (xMax - xMin)) * plotW;
+      const y = value => margin.top + (1 - Math.max(0, Math.min(100, value)) / 100) * plotH;
+      const ticks = [0, 25, 50, 75, 100];
+      const xTicks = Array.from({ length: 5 }, (_, index) => xMin + ((xMax - xMin) * index) / 4);
+      const points = rows.map(row => {
+        const color = row.passRate >= 0.8 ? "var(--green)" : row.passRate >= 0.5 ? "var(--gold)" : "var(--red)";
+        const label = `${row.model}: score ${number(row.score, 2)}, ${metric.label} ${formatMetric(row.value, metric)}`;
+        return `
+          <g>
+            <circle class="point" cx="${x(row.value).toFixed(1)}" cy="${y(row.score).toFixed(1)}" r="6" fill="${color}">
+              <title>${esc(label)}</title>
+            </circle>
+            <text class="point-label" x="${(x(row.value) + 9).toFixed(1)}" y="${(y(row.score) - 8).toFixed(1)}">${esc(row.model)}</text>
+          </g>
+        `;
+      }).join("");
+
+      document.getElementById("scatterPlot").innerHTML = `
+        <svg class="scatter" viewBox="0 0 ${width} ${height}" role="img" aria-label="Score vs ${esc(metric.label)}">
+          ${ticks.map(tick => `
+            <line class="gridline" x1="${margin.left}" x2="${width - margin.right}" y1="${y(tick)}" y2="${y(tick)}"></line>
+            <text class="axis-label" x="${margin.left - 12}" y="${y(tick) + 4}" text-anchor="end">${tick}</text>
+          `).join("")}
+          ${xTicks.map(tick => `
+            <line class="gridline" x1="${x(tick)}" x2="${x(tick)}" y1="${margin.top}" y2="${height - margin.bottom}"></line>
+            <text class="axis-label" x="${x(tick)}" y="${height - margin.bottom + 24}" text-anchor="middle">${esc(formatMetric(tick, metric))}</text>
+          `).join("")}
+          <line class="axis" x1="${margin.left}" x2="${margin.left}" y1="${margin.top}" y2="${height - margin.bottom}"></line>
+          <line class="axis" x1="${margin.left}" x2="${width - margin.right}" y1="${height - margin.bottom}" y2="${height - margin.bottom}"></line>
+          <text class="axis-label" x="${margin.left}" y="15">score</text>
+          <text class="axis-label" x="${width - margin.right}" y="${height - 14}" text-anchor="end">${esc(metric.label)}</text>
+          ${points}
+        </svg>
+      `;
+      document.getElementById("telemetryNote").textContent =
+        `Telemetry samples: ${run.summary?.telemetry?.sample_count || 0}; provider: ${(run.summary?.telemetry?.providers || []).join(", ") || "none"}`;
+    }
+
+    function modelMetric(row, key) {
+      const value = row[key];
+      if (typeof value === "number" && Number.isFinite(value)) return value;
+      return null;
+    }
+
+    function formatMetric(value, metric) {
+      const digits = metric.key === "median_latency_seconds" || metric.key.includes("power") ? 2 : 1;
+      if (metric.unit === "") return number(value, 0);
+      return `${Number(value).toFixed(digits)}${metric.unit}`;
     }
 
     function renderMatrix(run) {
@@ -581,15 +776,19 @@ INDEX_TEMPLATE = r"""<!doctype html>
             <td>${esc(result.ollama_status || "")}</td>
             <td>${esc(result.judge_status || "")}</td>
             <td>${number(result.latency_seconds, 3)}s</td>
+            <td class="num">${metricText(resultMetric(result, "power_w_avg"), "W", 2)}</td>
+            <td class="num">${metricText(resultMetric(result, "vram_mb_peak"), "MB", 1)}</td>
+            <td class="num">${metricText(resultMetric(result, "gpu_busy_percent_avg"), "%", 1)}</td>
             <td>${errorHtml}</td>
           </tr>
           <tr id="${detailId}" class="detail-row" hidden>
-            <td colspan="9">
+            <td colspan="12">
               <div class="detail-grid">
                 <div class="detail-block"><b>Raw Transcript</b><pre>${esc(caseInfo.transcript || "")}</pre></div>
                 <div class="detail-block"><b>Expected Output</b><pre>${esc(caseInfo.expected || "")}</pre></div>
                 <div class="detail-block"><b>Model Output</b><pre>${esc(result.output || "")}</pre></div>
                 <div class="detail-block"><b>Judge Summary</b><pre>${esc(result.judge?.summary || result.stderr || "")}</pre></div>
+                <div class="detail-block"><b>Telemetry</b><pre>${esc(telemetryText(result))}</pre></div>
               </div>
             </td>
           </tr>
@@ -604,6 +803,9 @@ INDEX_TEMPLATE = r"""<!doctype html>
         { key: "ollama", label: "Ollama" },
         { key: "judge", label: "Judge" },
         { key: "latency", label: "Latency" },
+        { key: "power", label: "Avg Power" },
+        { key: "vram", label: "Peak VRAM" },
+        { key: "gpu", label: "GPU Busy" },
         { key: "errors", label: "Errors" }
       ], rows);
       document.querySelectorAll(".toggle").forEach(button => {
@@ -620,12 +822,37 @@ INDEX_TEMPLATE = r"""<!doctype html>
     function detailSortValue(result, key) {
       if (key === "score") return Number(result.score || 0);
       if (key === "latency") return Number(result.latency_seconds || 0);
+      if (key === "power") return Number(resultMetric(result, "power_w_avg") || 0);
+      if (key === "vram") return Number(resultMetric(result, "vram_mb_peak") || 0);
+      if (key === "gpu") return Number(resultMetric(result, "gpu_busy_percent_avg") || 0);
       if (key === "case") return String(result.case_id || "");
       if (key === "category") return String(result.category || "");
       if (key === "ollama") return String(result.ollama_status || "");
       if (key === "judge") return String(result.judge_status || "");
       if (key === "errors") return resultErrors(result).length;
       return String(result.model || "");
+    }
+
+    function resultMetric(result, key) {
+      const value = result.telemetry?.metrics?.[key];
+      return typeof value === "number" && Number.isFinite(value) ? value : null;
+    }
+
+    function telemetryText(result) {
+      const telemetry = result.telemetry || {};
+      const metrics = telemetry.metrics || {};
+      const lines = [
+        `status: ${telemetry.status || "missing"}`,
+        `provider: ${telemetry.provider || "none"}`,
+        `samples: ${telemetry.sample_count || 0}`
+      ];
+      if (metrics.power_w_avg != null) lines.push(`average power: ${metricText(metrics.power_w_avg, "W", 2)}`);
+      if (metrics.power_w_peak != null) lines.push(`peak power: ${metricText(metrics.power_w_peak, "W", 2)}`);
+      if (metrics.vram_mb_peak != null) lines.push(`peak VRAM: ${metricText(metrics.vram_mb_peak, "MB", 1)}`);
+      if (metrics.vram_total_mb != null) lines.push(`VRAM total: ${metricText(metrics.vram_total_mb, "MB", 1)}`);
+      if (metrics.gpu_busy_percent_avg != null) lines.push(`average GPU busy: ${metricText(metrics.gpu_busy_percent_avg, "%", 1)}`);
+      if (telemetry.reason) lines.push(`reason: ${telemetry.reason}`);
+      return lines.join("\n");
     }
 
     function setupDownloads(run) {
@@ -660,15 +887,16 @@ INDEX_TEMPLATE = r"""<!doctype html>
       renderStats(run);
       renderLeaderboard(run);
       renderModelTable(run);
+      renderTelemetry(run);
       renderMatrix(run);
       renderDetails(run);
     }
 
     setupRunSelect();
     setupFilters();
+    setupMetricSelect();
     render();
   </script>
 </body>
 </html>
 """
-

@@ -12,6 +12,7 @@ from .ollama import list_installed_models, run_model, stop_model
 from .prompt import render_prompt
 from .report import new_run_id, relpath, safe_filename, write_run_artifacts
 from .site import generate_site
+from .telemetry import TelemetryRecorder, build_telemetry_reader
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -40,6 +41,18 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--judge-tier", choices=["standard", "priority"], default="standard")
     run_parser.add_argument("--keep-loaded", action="store_true", help="Do not run ollama stop after each result.")
     run_parser.add_argument("--no-site", action="store_true", help="Do not refresh the static site after the run.")
+    run_parser.add_argument(
+        "--telemetry",
+        choices=["auto", "off", "amd-sysfs"],
+        default="auto",
+        help="Capture local GPU telemetry when supported. Default: auto.",
+    )
+    run_parser.add_argument(
+        "--telemetry-interval",
+        type=float,
+        default=0.5,
+        help="Seconds between telemetry samples. Default: 0.5.",
+    )
 
     site_parser = subparsers.add_parser("site", help="Generate the static score site from saved runs.")
     site_parser.add_argument("--runs-dir", default="./runs")
@@ -77,6 +90,7 @@ def run_command(args: argparse.Namespace) -> int:
     judge_dir = run_dir / "judge"
     for directory in (prompts_dir, outputs_dir, judge_prompts_dir, judge_dir):
         directory.mkdir(parents=True, exist_ok=True)
+    telemetry_reader = build_telemetry_reader(args.telemetry)
 
     run_data: dict[str, Any] = {
         "run_id": run_id,
@@ -93,6 +107,16 @@ def run_command(args: argparse.Namespace) -> int:
             "keep_loaded": args.keep_loaded,
             "output_dir": str(output_root),
             "site_dir": str(args.site_dir),
+            "telemetry": args.telemetry,
+            "telemetry_interval": args.telemetry_interval,
+        },
+        "telemetry": {
+            "mode": args.telemetry,
+            "interval_seconds": args.telemetry_interval,
+            "provider": telemetry_reader.provider,
+            "status": telemetry_reader.status,
+            "reason": telemetry_reader.reason,
+            "device": telemetry_reader.describe(),
         },
         "results": [],
     }
@@ -110,7 +134,10 @@ def run_command(args: argparse.Namespace) -> int:
             output_path = outputs_dir / f"{base_name}.txt"
             prompt_path.write_text(prompt, encoding="utf-8")
 
+            telemetry = TelemetryRecorder(telemetry_reader, interval_seconds=args.telemetry_interval)
+            telemetry.start()
             process = run_model(model, prompt, timeout=args.timeout)
+            telemetry_result = telemetry.stop()
             output_path.write_text(process.stdout, encoding="utf-8")
             stop_result = None
             if not args.keep_loaded:
@@ -130,6 +157,7 @@ def run_command(args: argparse.Namespace) -> int:
                 "ollama_status": process.status,
                 "ollama_command": process.command,
                 "stop": stop_result.to_dict() if stop_result else None,
+                "telemetry": telemetry_result,
                 "judge_status": "skipped" if args.no_judge else "not_run",
                 "judge": None,
                 "score": 0,
@@ -181,4 +209,3 @@ def _model_args(values: list[str] | None) -> list[str]:
             if model:
                 models.append(model)
     return models
-

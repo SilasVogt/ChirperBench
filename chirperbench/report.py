@@ -46,6 +46,10 @@ def rank_models(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
         ollama_error_count = sum(
             1 for result in model_results if result.get("ollama_status") != "ok"
         )
+        telemetry_sample_count = sum(
+            int((result.get("telemetry") or {}).get("sample_count") or 0)
+            for result in model_results
+        )
         rows.append(
             {
                 "model": model,
@@ -59,6 +63,22 @@ def rank_models(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "error_count": judge_error_count + ollama_error_count,
                 "ollama_error_count": ollama_error_count,
                 "judge_error_count": judge_error_count,
+                "telemetry_sample_count": telemetry_sample_count,
+                "median_power_w_avg": _optional_median(
+                    _telemetry_values(model_results, "power_w_avg")
+                ),
+                "peak_power_w": _optional_max(
+                    _telemetry_values(model_results, "power_w_peak")
+                ),
+                "median_vram_mb_peak": _optional_median(
+                    _telemetry_values(model_results, "vram_mb_peak")
+                ),
+                "peak_vram_mb": _optional_max(
+                    _telemetry_values(model_results, "vram_mb_peak")
+                ),
+                "median_gpu_busy_percent_avg": _optional_median(
+                    _telemetry_values(model_results, "gpu_busy_percent_avg")
+                ),
             }
         )
 
@@ -79,7 +99,6 @@ def rank_models(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def refresh_summary(run_data: dict[str, Any]) -> dict[str, Any]:
     results = list(run_data.get("results") or [])
     cases = list(run_data.get("cases") or [])
-    case_by_id = {case.get("id"): case for case in cases}
     models = list(run_data.get("models") or [])
     if not models:
         models = sorted({str(result.get("model", "")) for result in results if result.get("model")})
@@ -129,6 +148,8 @@ def refresh_summary(run_data: dict[str, Any]) -> dict[str, Any]:
 
     error_counts: Counter[str] = Counter()
     severity_counts: Counter[str] = Counter()
+    telemetry_sample_count = 0
+    telemetry_providers: set[str] = set()
     for result in results:
         judge = result.get("judge") or {}
         for error in judge.get("errors") or []:
@@ -137,6 +158,10 @@ def refresh_summary(run_data: dict[str, Any]) -> dict[str, Any]:
         if result.get("ollama_status") != "ok":
             error_counts["ollama_run_failed"] += 1
             severity_counts["critical"] += 1
+        telemetry = result.get("telemetry") or {}
+        telemetry_sample_count += int(telemetry.get("sample_count") or 0)
+        if telemetry.get("provider"):
+            telemetry_providers.add(str(telemetry.get("provider")))
 
     run_data["summary"] = {
         "leaderboard": leaderboard,
@@ -148,6 +173,11 @@ def refresh_summary(run_data: dict[str, Any]) -> dict[str, Any]:
         "result_count": len(results),
         "case_count": len(cases),
         "model_count": len(models),
+        "telemetry": {
+            "available": telemetry_sample_count > 0,
+            "sample_count": telemetry_sample_count,
+            "providers": sorted(telemetry_providers),
+        },
     }
     return run_data["summary"]
 
@@ -180,13 +210,17 @@ def render_summary_markdown(run_data: dict[str, Any]) -> str:
         "",
         "## Leaderboard",
         "",
-        "| Rank | Model | Average score | Pass rate | Median latency | Errors |",
-        "| ---: | --- | ---: | ---: | ---: | ---: |",
+        "| Rank | Model | Average score | Pass rate | Median latency | Avg power | Peak VRAM | Errors |",
+        "| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in run_data["summary"]["leaderboard"]:
         lines.append(
             "| {rank} | {model} | {average_score:.2f} | {pass_rate:.1%} | "
-            "{median_latency_seconds:.3f}s | {error_count} |".format(**row)
+            "{median_latency_seconds:.3f}s | {power} | {vram} | {error_count} |".format(
+                **row,
+                power=_format_optional(row.get("median_power_w_avg"), "W", 2),
+                vram=_format_optional(row.get("median_vram_mb_peak"), "MB", 1),
+            )
         )
     lines.extend(["", "## Error Counts", ""])
     error_counts = run_data["summary"].get("error_counts") or {}
@@ -211,3 +245,31 @@ def _result_score(result: dict[str, Any] | None) -> int:
         return max(0, min(100, score))
     return 0
 
+
+def _telemetry_values(results: list[dict[str, Any]], key: str) -> list[float]:
+    values: list[float] = []
+    for result in results:
+        telemetry = result.get("telemetry") or {}
+        metrics = telemetry.get("metrics") or {}
+        value = metrics.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            values.append(float(value))
+    return values
+
+
+def _optional_median(values: list[float]) -> float | None:
+    if not values:
+        return None
+    return round(float(statistics.median(values)), 2)
+
+
+def _optional_max(values: list[float]) -> float | None:
+    if not values:
+        return None
+    return round(max(values), 2)
+
+
+def _format_optional(value: Any, suffix: str, digits: int) -> str:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return "NA"
+    return f"{value:.{digits}f}{suffix}"

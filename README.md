@@ -21,6 +21,7 @@ xdg-open ./site/index.html
 ```
 
 By default, `run` benchmarks every model from `ollama list`, writes a timestamped directory under `./runs`, and refreshes `./site`.
+On Linux, `--telemetry auto` is enabled by default. It currently captures AMD GPU telemetry from `amdgpu` sysfs counters when available, including power draw, VRAM use, and GPU busy percent. Use `--telemetry off` to disable it.
 
 Useful narrower run:
 
@@ -29,6 +30,18 @@ python -m chirperbench run \
   --models granite4.1:3b \
   --case literal_question_no_answer \
   --no-judge \
+  --output-dir ./runs-smoke \
+  --site-dir ./site-smoke
+```
+
+AMD telemetry can be requested explicitly:
+
+```sh
+python -m chirperbench run \
+  --models granite4.1:3b \
+  --case literal_question_no_answer \
+  --no-judge \
+  --telemetry amd-sysfs \
   --output-dir ./runs-smoke \
   --site-dir ./site-smoke
 ```
@@ -52,6 +65,7 @@ site/
 ```
 
 `run.json` is the source of truth. `summary.md` and the static site are derived from it.
+Telemetry is stored as per-result summaries rather than raw samples. The static site plots score against latency, average/peak power, peak VRAM, GPU busy percent, and error count when those metrics exist in the run.
 
 ## Prompt
 
@@ -99,4 +113,3 @@ Failed Ollama runs count as failures and are not sent to the judge.
 ```sh
 python -m unittest discover -s tests
 ```
-

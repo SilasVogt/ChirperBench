@@ -40,6 +40,17 @@ class SiteTest(unittest.TestCase):
                         "ollama_status": "ok",
                         "judge_status": "ok",
                         "stderr": "",
+                        "telemetry": {
+                            "status": "ok",
+                            "provider": "amd-sysfs",
+                            "sample_count": 3,
+                            "metrics": {
+                                "power_w_avg": 55.0,
+                                "power_w_peak": 60.0,
+                                "vram_mb_peak": 2048.0,
+                                "gpu_busy_percent_avg": 70.0,
+                            },
+                        },
                         "judge": {
                             "summary": "Answered the question instead of transcribing it.",
                             "errors": [
@@ -57,8 +68,13 @@ class SiteTest(unittest.TestCase):
             index_path = generate_site(runs_dir, site_dir)
             html = index_path.read_text(encoding="utf-8")
             self.assertIn("Overall Leaderboard", html)
+            self.assertIn("Model Metrics", html)
+            self.assertIn("Telemetry Graphs", html)
             self.assertIn("Detailed Results", html)
             self.assertIn("Case Matrix", html)
+            self.assertIn("average power", html)
+            self.assertIn("peak VRAM", html)
+            self.assertIn("average GPU busy", html)
             self.assertIn("refusal_or_meta", html)
             self.assertIn("answered_content", html)
             self.assertIn("partial_mixed_task", html)
@@ -67,9 +83,9 @@ class SiteTest(unittest.TestCase):
 
             latest = json.loads((site_dir / "data" / "latest-run.json").read_text(encoding="utf-8"))
             self.assertEqual(latest["run_id"], "20260101-000000")
+            self.assertTrue(latest["summary"]["telemetry"]["available"])
             self.assertTrue((site_dir / "data" / "20260101-000000.json").exists())
 
 
 if __name__ == "__main__":
     unittest.main()
-
