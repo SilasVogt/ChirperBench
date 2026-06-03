@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chirperbench"
+version = "0.1.0"
+description = "Standalone Ollama dictation transcript benchmark with Codex judging and static score site."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "ChirperBench" }
+]
+dependencies = []
+
+[project.scripts]
+chirperbench = "chirperbench.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["chirperbench*"]
+
