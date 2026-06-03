@@ -21,12 +21,16 @@ from .telemetry import TelemetryRecorder, build_telemetry_reader
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    if args.command == "run":
-        return run_command(args)
-    if args.command == "site":
-        return site_command(args)
-    parser.print_help()
-    return 2
+    try:
+        if args.command == "run":
+            return run_command(args)
+        if args.command == "site":
+            return site_command(args)
+        parser.print_help()
+        return 2
+    except KeyboardInterrupt:
+        print("\nInterrupted by user.", file=sys.stderr, flush=True)
+        return 130
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -167,15 +171,26 @@ def run_command(args: argparse.Namespace) -> int:
             print(f"  stage: ollama run (timeout {format_duration(args.timeout)})", flush=True)
             telemetry = TelemetryRecorder(telemetry_reader, interval_seconds=args.telemetry_interval)
             telemetry.start()
-            with _stage_heartbeat(
-                stage="ollama run",
-                progress_interval=args.progress_interval,
-                run_started_at=run_started_at,
-                stage_started_at=time.monotonic(),
-                completed=completed,
-                total=total,
-            ):
-                process = run_model(model, prompt, timeout=args.timeout)
+            try:
+                with _stage_heartbeat(
+                    stage="ollama run",
+                    progress_interval=args.progress_interval,
+                    run_started_at=run_started_at,
+                    stage_started_at=time.monotonic(),
+                    completed=completed,
+                    total=total,
+                ):
+                    process = run_model(model, prompt, timeout=args.timeout)
+            except KeyboardInterrupt:
+                telemetry.stop()
+                return _finish_interrupted_run(
+                    args=args,
+                    output_root=output_root,
+                    run_dir=run_dir,
+                    run_data=run_data,
+                    model=model,
+                    stage="ollama run",
+                )
             telemetry_result = telemetry.stop()
             output_path.write_text(process.stdout, encoding="utf-8")
             print(
@@ -188,15 +203,25 @@ def run_command(args: argparse.Namespace) -> int:
             stop_result = None
             if not args.keep_loaded:
                 print("  stage: ollama stop", flush=True)
-                with _stage_heartbeat(
-                    stage="ollama stop",
-                    progress_interval=args.progress_interval,
-                    run_started_at=run_started_at,
-                    stage_started_at=time.monotonic(),
-                    completed=completed,
-                    total=total,
-                ):
-                    stop_result = stop_model(model)
+                try:
+                    with _stage_heartbeat(
+                        stage="ollama stop",
+                        progress_interval=args.progress_interval,
+                        run_started_at=run_started_at,
+                        stage_started_at=time.monotonic(),
+                        completed=completed,
+                        total=total,
+                    ):
+                        stop_result = stop_model(model)
+                except KeyboardInterrupt:
+                    return _finish_interrupted_run(
+                        args=args,
+                        output_root=output_root,
+                        run_dir=run_dir,
+                        run_data=run_data,
+                        model=model,
+                        stage="ollama stop",
+                    )
                 print(
                     f"  stage done: stop {stop_result.status} in "
                     f"{format_duration(stop_result.elapsed_seconds)}",
@@ -228,21 +253,31 @@ def run_command(args: argparse.Namespace) -> int:
                 print(f"  stage: judging with gpt-5.5 (timeout {format_duration(args.judge_timeout)})", flush=True)
                 judge_prompt_path = judge_prompts_dir / f"{base_name}.txt"
                 judge_output_path = judge_dir / f"{base_name}.json"
-                with _stage_heartbeat(
-                    stage="judging",
-                    progress_interval=args.progress_interval,
-                    run_started_at=run_started_at,
-                    stage_started_at=time.monotonic(),
-                    completed=completed,
-                    total=total,
-                ):
-                    judge_result = run_judge(
-                        case=case,
-                        model_output=process.stdout,
-                        prompt_path=judge_prompt_path,
-                        output_path=judge_output_path,
-                        judge_tier=args.judge_tier,
-                        timeout=args.judge_timeout,
+                try:
+                    with _stage_heartbeat(
+                        stage="judging",
+                        progress_interval=args.progress_interval,
+                        run_started_at=run_started_at,
+                        stage_started_at=time.monotonic(),
+                        completed=completed,
+                        total=total,
+                    ):
+                        judge_result = run_judge(
+                            case=case,
+                            model_output=process.stdout,
+                            prompt_path=judge_prompt_path,
+                            output_path=judge_output_path,
+                            judge_tier=args.judge_tier,
+                            timeout=args.judge_timeout,
+                        )
+                except KeyboardInterrupt:
+                    return _finish_interrupted_run(
+                        args=args,
+                        output_root=output_root,
+                        run_dir=run_dir,
+                        run_data=run_data,
+                        model=model,
+                        stage="judging",
                     )
                 judge_dict = judge_result.to_dict()
                 judge_dict["prompt_path"] = relpath(judge_prompt_path, run_dir)
@@ -257,6 +292,8 @@ def run_command(args: argparse.Namespace) -> int:
                     f"score {judge_result.score}; passed {judge_result.passed}",
                     flush=True,
                 )
+                if judge_result.judge_status != "ok":
+                    print(f"  judge detail: {_short_text(judge_result.summary)}", flush=True)
             elif args.no_judge:
                 print("  stage: judge skipped (--no-judge)", flush=True)
             elif not process.ok:
@@ -340,6 +377,39 @@ def _telemetry_description(device: dict[str, Any]) -> str:
     if len(parts) == 1:
         return parts[0]
     return f"{parts[0]} ({', '.join(parts[1:])})"
+
+
+def _finish_interrupted_run(
+    *,
+    args: argparse.Namespace,
+    output_root: Path,
+    run_dir: Path,
+    run_data: dict[str, Any],
+    model: str,
+    stage: str,
+) -> int:
+    print(f"\nInterrupted during {stage}.", file=sys.stderr, flush=True)
+    if model and not args.keep_loaded:
+        print(f"Stopping Ollama model {model}...", file=sys.stderr, flush=True)
+        stop_result = stop_model(model)
+        print(
+            f"Stop status: {stop_result.status} in {format_duration(stop_result.elapsed_seconds)}",
+            file=sys.stderr,
+            flush=True,
+        )
+    write_run_artifacts(run_dir, run_data)
+    if not args.no_site:
+        index_path = generate_site(output_root, args.site_dir)
+        print(f"Partial site: {index_path}", file=sys.stderr, flush=True)
+    print(f"Partial run saved: {run_dir / 'run.json'}", file=sys.stderr, flush=True)
+    return 130
+
+
+def _short_text(value: str, limit: int = 220) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3] + "..."
 
 
 class _stage_heartbeat:

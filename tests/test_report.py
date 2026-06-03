@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from chirperbench.judge_codex import parse_judge_json
+from chirperbench.judge_codex import build_codex_command, parse_judge_json
 from chirperbench.ollama import parse_ollama_list
 from chirperbench.report import rank_models, write_run_artifacts
 from chirperbench.telemetry import AmdSysfsReader
@@ -40,6 +40,20 @@ llama3.2:latest       def456          4.1 GB    1 week ago
         self.assertFalse(parsed.passed)
         self.assertEqual(parsed.ideal_output, "Expected")
         self.assertEqual(parsed.raw_response, "not json")
+
+    def test_codex_command_uses_top_level_approval_flag(self):
+        command = build_codex_command(
+            prompt="judge this",
+            output_path=Path("/tmp/judge.json"),
+            judge_tier="priority",
+        )
+        self.assertEqual(command[:4], ["codex", "--ask-for-approval", "never", "exec"])
+        self.assertIn("--ephemeral", command)
+        self.assertIn("--ignore-rules", command)
+        self.assertIn("--skip-git-repo-check", command)
+        self.assertIn('model_reasoning_effort="high"', command)
+        self.assertIn('service_tier="priority"', command)
+        self.assertEqual(command[-3:], ["-o", "/tmp/judge.json", "judge this"])
 
     def test_ranking_sorts_by_score_pass_latency_errors(self):
         results = [

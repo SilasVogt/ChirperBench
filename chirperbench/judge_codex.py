@@ -150,27 +150,11 @@ def run_judge(
     prompt = build_judge_prompt(case, model_output)
     prompt_path.write_text(prompt, encoding="utf-8")
 
-    command = [
-        "codex",
-        "exec",
-        "--ask-for-approval",
-        "never",
-        "--ephemeral",
-        "--ignore-rules",
-        "--sandbox",
-        "read-only",
-        "--color",
-        "never",
-        "-C",
-        "/tmp",
-        "-m",
-        "gpt-5.5",
-        "-c",
-        'model_reasoning_effort="high"',
-    ]
-    if judge_tier == "priority":
-        command.extend(["-c", 'service_tier="priority"'])
-    command.extend(["-o", str(output_path), prompt])
+    command = build_codex_command(
+        prompt=prompt,
+        output_path=output_path,
+        judge_tier=judge_tier,
+    )
 
     start = time.monotonic()
     stdout = ""
@@ -239,15 +223,16 @@ def run_judge(
         output_path.write_text(raw, encoding="utf-8")
 
     if not raw.strip() and returncode != 0:
+        detail = _first_error_line(stderr) or _first_error_line(stdout) or f"codex exited with status {returncode}."
         result = JudgeResult(
             score=0,
             passed=False,
-            summary="Codex judge failed without JSON output.",
+            summary=f"Codex judge failed: {detail}",
             errors=[
                 JudgeError(
                     type="other",
                     severity="critical",
-                    detail=f"codex exited with status {returncode}.",
+                    detail=detail,
                 )
             ],
             ideal_output=case.expected,
@@ -264,6 +249,32 @@ def run_judge(
     result.output_path = str(output_path)
     result.command = command
     return result
+
+
+def build_codex_command(*, prompt: str, output_path: Path, judge_tier: str = "standard") -> list[str]:
+    command = [
+        "codex",
+        "--ask-for-approval",
+        "never",
+        "exec",
+        "--ephemeral",
+        "--ignore-rules",
+        "--sandbox",
+        "read-only",
+        "--color",
+        "never",
+        "-C",
+        "/tmp",
+        "--skip-git-repo-check",
+        "-m",
+        "gpt-5.5",
+        "-c",
+        'model_reasoning_effort="high"',
+    ]
+    if judge_tier == "priority":
+        command.extend(["-c", 'service_tier="priority"'])
+    command.extend(["-o", str(output_path), prompt])
+    return command
 
 
 def _invalid_schema(raw: str, expected: str, detail: str) -> JudgeResult:
@@ -285,3 +296,10 @@ def _to_text(value: str | bytes | None) -> str:
         return value.decode("utf-8", errors="replace")
     return value
 
+
+def _first_error_line(value: str) -> str:
+    for line in value.splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("Reading additional input from stdin"):
+            return stripped
+    return ""
