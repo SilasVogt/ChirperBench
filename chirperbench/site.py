@@ -221,8 +221,8 @@ INDEX_TEMPLATE = r"""<!doctype html>
     }
     .stat:nth-child(2) { background: var(--green); }
     .stat:nth-child(3) { background: var(--cyan); }
-    .stat:nth-child(4) { background: var(--lavender); }
-    .stat:nth-child(5) { background: var(--red); }
+    .stat:nth-child(4) { background: var(--gold); color: var(--ink); }
+    .stat:nth-child(5) { background: var(--lavender); }
     .stat .label {
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       font-size: 0.74rem;
@@ -230,10 +230,17 @@ INDEX_TEMPLATE = r"""<!doctype html>
       opacity: 0.78;
     }
     .stat .value {
-      font-size: 2rem;
+      font-size: clamp(1.15rem, 1.8vw, 2rem);
       line-height: 1;
       margin-top: 9px;
       font-weight: 700;
+      overflow-wrap: anywhere;
+    }
+    .stat .detail {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.78rem;
+      margin-top: 8px;
+      opacity: 0.82;
     }
     .grid {
       display: grid;
@@ -422,6 +429,98 @@ INDEX_TEMPLATE = r"""<!doctype html>
       font-size: 0.78rem;
       background: #fbfaf5;
     }
+    .chart-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .chart-panel {
+      border: 2px solid var(--ink);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      padding: 13px;
+      min-width: 0;
+    }
+    .chart-panel.wide {
+      grid-column: 1 / -1;
+    }
+    .chart-title {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.86rem;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+    .bar-row {
+      display: grid;
+      grid-template-columns: minmax(150px, 0.8fr) minmax(160px, 2fr) auto;
+      gap: 10px;
+      align-items: center;
+      margin: 8px 0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.8rem;
+    }
+    .stacked-track,
+    .issue-track {
+      height: 16px;
+      border: 1px solid var(--ink);
+      background: #ece9df;
+      display: flex;
+      overflow: hidden;
+    }
+    .stack-pass {
+      background: var(--green);
+    }
+    .stack-fail {
+      background: var(--red);
+    }
+    .issue-fill {
+      background: var(--red);
+      height: 100%;
+    }
+    .chart-legend {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.78rem;
+      margin-top: 9px;
+    }
+    .legend-swatch {
+      display: inline-block;
+      width: 11px;
+      height: 11px;
+      border: 1px solid var(--ink);
+      margin-right: 5px;
+      vertical-align: -1px;
+    }
+    .severity-grid {
+      display: grid;
+      grid-template-columns: minmax(160px, 1.2fr) repeat(3, minmax(90px, 1fr));
+      border: 1px solid var(--ink);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.8rem;
+      overflow-x: auto;
+    }
+    .severity-grid > div {
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      padding: 8px;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    .severity-grid .head {
+      background: var(--ink);
+      color: #fff;
+      font-weight: 700;
+    }
+    .severity-cell {
+      color: var(--ink);
+      font-weight: 700;
+    }
+    .severity-minor { background: #eef7f2; }
+    .severity-major { background: #fff1c2; }
+    .severity-critical { background: #f7d7d3; }
     .table-wrap {
       overflow: auto;
       border: 2px solid var(--ink);
@@ -452,6 +551,32 @@ INDEX_TEMPLATE = r"""<!doctype html>
     }
     tbody tr:hover td {
       background: #fff7d8;
+    }
+    tr.pick-score td {
+      background: #edf8f1;
+    }
+    tr.pick-fastest td {
+      background: #eaf7fa;
+    }
+    tr.pick-balanced td {
+      background: #fff5d3;
+    }
+    .model-badge {
+      display: inline-block;
+      margin: 3px 4px 0 0;
+      padding: 2px 5px;
+      border: 1px solid currentColor;
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.68rem;
+      white-space: nowrap;
+    }
+    .sort-hint,
+    .table-note {
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.82rem;
+      margin: -4px 0 10px;
     }
     .num { text-align: right; }
     .model-name {
@@ -565,6 +690,8 @@ INDEX_TEMPLATE = r"""<!doctype html>
       .detail-grid { grid-template-columns: 1fr; }
       .compare-controls,
       .compare-reference { grid-template-columns: 1fr; }
+      .chart-grid { grid-template-columns: 1fr; }
+      .bar-row { grid-template-columns: 1fr; }
       .compare-actions { justify-content: flex-start; }
       h1 { font-size: 2.35rem; }
     }
@@ -592,11 +719,13 @@ INDEX_TEMPLATE = r"""<!doctype html>
     <div class="grid">
       <section>
         <h2>Overall Leaderboard</h2>
+        <p class="sort-hint">Click any column header to sort. Highlighted rows mark highest score, lowest latency, and best score per second.</p>
         <div class="table-wrap"><table id="leaderboardTable"></table></div>
       </section>
 
       <section>
         <h2>Model Metrics</h2>
+        <p class="table-note">Judge issues are model-output mistakes found by the judge. One result can have multiple issues; run failures are shown separately as statuses.</p>
         <div class="table-wrap"><table id="modelTable"></table></div>
       </section>
 
@@ -613,7 +742,25 @@ INDEX_TEMPLATE = r"""<!doctype html>
       </section>
 
       <section>
-        <h2>Case Matrix</h2>
+        <h2>Outcome Graphs</h2>
+        <div class="chart-grid">
+          <div class="chart-panel">
+            <div class="chart-title">Pass / Fail by Transcript Category</div>
+            <div id="categoryOutcomeChart"></div>
+          </div>
+          <div class="chart-panel">
+            <div class="chart-title">Judge Issues by Type</div>
+            <div id="issueTypeChart"></div>
+          </div>
+          <div class="chart-panel wide">
+            <div class="chart-title">Issue Type by Severity</div>
+            <div id="issueSeverityChart"></div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Transcript Matrix</h2>
         <div class="table-wrap"><table id="matrixTable"></table></div>
       </section>
 
@@ -653,7 +800,12 @@ INDEX_TEMPLATE = r"""<!doctype html>
     const selectedErrors = new Set();
     const selectedCompareModels = new Set();
     let currentRunId = embedded.runs.length ? embedded.runs[embedded.runs.length - 1].id : "";
-    let sortState = { key: "model", dir: "asc" };
+    const sortStates = {
+      leaderboard: { key: "rank", dir: "asc" },
+      model: { key: "average_score", dir: "desc" },
+      matrix: { key: "case", dir: "asc" },
+      detail: { key: "model", dir: "asc" }
+    };
     let scatterMetricKey = "median_latency_seconds";
     let compareCaseId = "";
     const scatterMetrics = [
@@ -662,7 +814,7 @@ INDEX_TEMPLATE = r"""<!doctype html>
       { key: "peak_power_w", label: "peak power", unit: "W" },
       { key: "median_vram_mb_peak", label: "peak VRAM", unit: "MB" },
       { key: "median_gpu_busy_percent_avg", label: "average GPU busy", unit: "%" },
-      { key: "error_count", label: "error count", unit: "" }
+      { key: "error_count", label: "judge issue count", unit: "" }
     ];
 
     function esc(value) {
@@ -687,6 +839,11 @@ INDEX_TEMPLATE = r"""<!doctype html>
     function metricText(value, unit = "", digits = 1) {
       if (typeof value !== "number" || Number.isNaN(value)) return "NA";
       return `${value.toFixed(digits)}${unit}`;
+    }
+
+    function scorePerSecond(row) {
+      const latency = Math.max(Number(row?.median_latency_seconds || 0), 0.001);
+      return Number(row?.average_score || 0) / latency;
     }
 
     function resultErrors(result) {
@@ -785,84 +942,152 @@ INDEX_TEMPLATE = r"""<!doctype html>
 
     function renderStats(run) {
       const summary = run.summary || {};
-      const top = (summary.leaderboard || [])[0] || {};
-      const errorTotal = Object.values(summary.error_counts || {}).reduce((sum, value) => sum + Number(value || 0), 0);
+      const picks = modelPicks(run);
       document.getElementById("stats").innerHTML = [
-        ["run", run.run_id || ""],
-        ["top model", top.model || "none"],
-        ["results", summary.result_count || 0],
-        ["telemetry", summary.telemetry?.sample_count || 0],
-        ["errors", errorTotal]
-      ].map(([label, value]) => `
-        <div class="stat"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div></div>
+        ["run", run.run_id || "", `${summary.result_count || 0} results`],
+        ["highest score", picks.score?.model || "none", picks.score ? `${number(picks.score.average_score, 2)} avg score` : ""],
+        ["lowest latency", picks.fastest?.model || "none", picks.fastest ? `${number(picks.fastest.median_latency_seconds, 3)}s median` : ""],
+        ["best score/sec", picks.balanced?.model || "none", picks.balanced ? `${number(scorePerSecond(picks.balanced), 2)} pts/s` : ""],
+        ["models", summary.model_count || 0, `${summary.case_count || 0} transcripts`]
+      ].map(([label, value, detail]) => `
+        <div class="stat"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div><div class="detail">${esc(detail)}</div></div>
       `).join("");
     }
 
-    function table(id, headers, rows) {
+    function table(id, headers, rows, onSort = null) {
       const head = `<thead><tr>${headers.map(h => `<th data-key="${esc(h.key)}">${esc(h.label)}</th>`).join("")}</tr></thead>`;
       const body = `<tbody>${rows.join("")}</tbody>`;
       const el = document.getElementById(id);
       el.innerHTML = head + body;
-      el.querySelectorAll("th[data-key]").forEach(th => {
-        th.addEventListener("click", () => {
-          const key = th.dataset.key;
-          sortState = {
-            key,
-            dir: sortState.key === key && sortState.dir === "asc" ? "desc" : "asc"
-          };
-          renderDetails(currentRun());
+      if (onSort) {
+        el.querySelectorAll("th[data-key]").forEach(th => {
+          th.addEventListener("click", () => {
+            onSort(th.dataset.key);
+          });
         });
+      }
+    }
+
+    function toggleSort(state, key) {
+      state.dir = state.key === key && state.dir === "asc" ? "desc" : "asc";
+      state.key = key;
+    }
+
+    function sortedRows(rows, state, valueFn) {
+      const dir = state.dir === "asc" ? 1 : -1;
+      return rows.slice().sort((a, b) => {
+        const av = valueFn(a, state.key);
+        const bv = valueFn(b, state.key);
+        if (typeof av === "number" && typeof bv === "number") {
+          return (av - bv) * dir;
+        }
+        return String(av ?? "").localeCompare(String(bv ?? "")) * dir;
       });
     }
 
+    function modelSortValue(row, key) {
+      if (key === "model") return row.model || "";
+      if (key === "score_per_second") return scorePerSecond(row);
+      const value = row[key];
+      return typeof value === "number" && Number.isFinite(value) ? value : 0;
+    }
+
+    function modelPicks(run) {
+      const rows = run?.summary?.leaderboard || [];
+      return {
+        score: maxBy(rows, row => Number(row.average_score || 0)),
+        fastest: minBy(rows, row => Number(row.median_latency_seconds || Infinity)),
+        balanced: maxBy(rows, scorePerSecond)
+      };
+    }
+
+    function maxBy(rows, fn) {
+      return rows.reduce((best, row) => !best || fn(row) > fn(best) ? row : best, null);
+    }
+
+    function minBy(rows, fn) {
+      return rows.reduce((best, row) => !best || fn(row) < fn(best) ? row : best, null);
+    }
+
+    function pickClasses(row, picks) {
+      return [
+        picks.score?.model === row.model ? "pick-score" : "",
+        picks.fastest?.model === row.model ? "pick-fastest" : "",
+        picks.balanced?.model === row.model ? "pick-balanced" : ""
+      ].filter(Boolean).join(" ");
+    }
+
+    function pickBadges(row, picks) {
+      const badges = [];
+      if (picks.score?.model === row.model) badges.push("highest score");
+      if (picks.fastest?.model === row.model) badges.push("lowest latency");
+      if (picks.balanced?.model === row.model) badges.push("best score/s");
+      if (!badges.length) return "";
+      return `<div>${badges.map(label => `<span class="model-badge">${esc(label)}</span>`).join("")}</div>`;
+    }
+
     function renderLeaderboard(run) {
-      const rows = (run.summary?.leaderboard || []).map(row => `
-        <tr>
+      const picks = modelPicks(run);
+      const rows = sortedRows(run.summary?.leaderboard || [], sortStates.leaderboard, modelSortValue).map(row => `
+        <tr class="${pickClasses(row, picks)}">
           <td class="num">${row.rank}</td>
-          <td class="model-name">${esc(row.model)}</td>
+          <td class="model-name">${esc(row.model)}${pickBadges(row, picks)}</td>
           <td>${bar(number(row.average_score, 2), row.average_score, 100, row.average_score < 70 ? "bad" : "")}</td>
           <td>${bar(pct(row.pass_rate), row.pass_rate, 1, "pass")}</td>
           <td>${number(row.median_latency_seconds, 3)}s</td>
+          <td class="num">${number(scorePerSecond(row), 2)}</td>
+          <td class="num">${metricText(row.median_power_w_avg, "W", 2)}</td>
+          <td class="num">${metricText(row.median_vram_mb_peak, "MB", 1)}</td>
           <td class="num">${row.error_count}</td>
         </tr>
       `);
       table("leaderboardTable", [
         { key: "rank", label: "Rank" },
         { key: "model", label: "Model" },
-        { key: "score", label: "Score" },
-        { key: "pass", label: "Pass Rate" },
-        { key: "latency", label: "Median Latency" },
-        { key: "errors", label: "Errors" }
-      ], rows);
+        { key: "average_score", label: "Score" },
+        { key: "pass_rate", label: "Pass Rate" },
+        { key: "median_latency_seconds", label: "Median Latency" },
+        { key: "score_per_second", label: "Score/Sec" },
+        { key: "median_power_w_avg", label: "Avg Power" },
+        { key: "median_vram_mb_peak", label: "Peak VRAM" },
+        { key: "error_count", label: "Judge Issues" }
+      ], rows, key => {
+        toggleSort(sortStates.leaderboard, key);
+        renderLeaderboard(currentRun());
+      });
     }
 
     function renderModelTable(run) {
-      const models = run.summary?.models || [];
+      const picks = modelPicks(run);
+      const models = sortedRows(run.summary?.models || [], sortStates.model, modelSortValue);
       const maxLatency = Math.max(1, ...models.map(row => Number(row.median_latency_seconds || 0)));
       const rows = models.map(row => `
-        <tr>
-          <td class="model-name">${esc(row.model)}</td>
+        <tr class="${pickClasses(row, picks)}">
+          <td class="model-name">${esc(row.model)}${pickBadges(row, picks)}</td>
           <td>${bar(number(row.average_score, 2), row.average_score, 100, row.average_score < 70 ? "bad" : "")}</td>
           <td>${bar(pct(row.pass_rate), row.pass_rate, 1, "pass")}</td>
           <td>${bar(`${number(row.median_latency_seconds, 3)}s`, row.median_latency_seconds, maxLatency, "latency")}</td>
+          <td class="num">${number(scorePerSecond(row), 2)}</td>
           <td class="num">${metricText(row.median_power_w_avg, "W", 2)}</td>
           <td class="num">${metricText(row.median_vram_mb_peak, "MB", 1)}</td>
           <td class="num">${metricText(row.median_gpu_busy_percent_avg, "%", 1)}</td>
-          <td class="num">${row.case_count}</td>
           <td class="num">${row.error_count}</td>
         </tr>
       `);
       table("modelTable", [
         { key: "model", label: "Model" },
-        { key: "score", label: "Score" },
-        { key: "pass", label: "Pass Rate" },
-        { key: "latency", label: "Latency" },
-        { key: "power", label: "Avg Power" },
-        { key: "vram", label: "Peak VRAM" },
-        { key: "gpu", label: "GPU Busy" },
-        { key: "cases", label: "Cases" },
-        { key: "errors", label: "Errors" }
-      ], rows);
+        { key: "average_score", label: "Score" },
+        { key: "pass_rate", label: "Pass Rate" },
+        { key: "median_latency_seconds", label: "Latency" },
+        { key: "score_per_second", label: "Score/Sec" },
+        { key: "median_power_w_avg", label: "Avg Power" },
+        { key: "median_vram_mb_peak", label: "Peak VRAM" },
+        { key: "median_gpu_busy_percent_avg", label: "GPU Busy" },
+        { key: "error_count", label: "Judge Issues" }
+      ], rows, key => {
+        toggleSort(sortStates.model, key);
+        renderModelTable(currentRun());
+      });
     }
 
     function renderTelemetry(run) {
@@ -935,6 +1160,121 @@ INDEX_TEMPLATE = r"""<!doctype html>
         `Telemetry samples: ${run.summary?.telemetry?.sample_count || 0}; provider: ${(run.summary?.telemetry?.providers || []).join(", ") || "none"}`;
     }
 
+    function renderOutcomeGraphs(run) {
+      renderCategoryOutcomeChart(run);
+      renderIssueTypeChart(run);
+      renderIssueSeverityChart(run);
+    }
+
+    function renderCategoryOutcomeChart(run) {
+      const groups = new Map();
+      for (const result of run.results || []) {
+        const key = result.category || "uncategorized";
+        if (!groups.has(key)) groups.set(key, { category: key, pass: 0, fail: 0 });
+        const group = groups.get(key);
+        if (result.passed) group.pass += 1;
+        else group.fail += 1;
+      }
+      const rows = Array.from(groups.values()).sort((a, b) => (b.pass + b.fail) - (a.pass + a.fail) || a.category.localeCompare(b.category));
+      if (!rows.length) {
+        document.getElementById("categoryOutcomeChart").innerHTML = `<div class="empty">No result data.</div>`;
+        return;
+      }
+      document.getElementById("categoryOutcomeChart").innerHTML = rows.map(row => {
+        const total = row.pass + row.fail;
+        const passWidth = total ? row.pass / total * 100 : 0;
+        const failWidth = 100 - passWidth;
+        return `
+          <div class="bar-row">
+            <span>${esc(row.category)}</span>
+            <div class="stacked-track" title="${row.pass} passed, ${row.fail} failed">
+              <div class="stack-pass" style="width:${passWidth}%"></div>
+              <div class="stack-fail" style="width:${failWidth}%"></div>
+            </div>
+            <span>${row.pass}/${total} pass</span>
+          </div>
+        `;
+      }).join("") + `
+        <div class="chart-legend">
+          <span><span class="legend-swatch" style="background: var(--green)"></span>passed</span>
+          <span><span class="legend-swatch" style="background: var(--red)"></span>failed</span>
+        </div>
+      `;
+    }
+
+    function renderIssueTypeChart(run) {
+      const counts = issueCounts(run);
+      const rows = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+      if (!rows.length) {
+        document.getElementById("issueTypeChart").innerHTML = `<div class="empty">No judge issues recorded.</div>`;
+        return;
+      }
+      const max = Math.max(...rows.map(([, count]) => count), 1);
+      document.getElementById("issueTypeChart").innerHTML = rows.map(([type, count]) => `
+        <div class="bar-row">
+          <span>${esc(type)}</span>
+          <div class="issue-track" title="${count} judge issues">
+            <div class="issue-fill" style="width:${Math.max(2, count / max * 100)}%"></div>
+          </div>
+          <span>${count}</span>
+        </div>
+      `).join("");
+    }
+
+    function renderIssueSeverityChart(run) {
+      const counts = issueSeverityCounts(run);
+      const types = Object.keys(counts).sort((a, b) => totalSeverity(counts[b]) - totalSeverity(counts[a]) || a.localeCompare(b));
+      if (!types.length) {
+        document.getElementById("issueSeverityChart").innerHTML = `<div class="empty">No judge issues recorded.</div>`;
+        return;
+      }
+      const max = Math.max(...types.flatMap(type => ["minor", "major", "critical"].map(severity => counts[type][severity] || 0)), 1);
+      document.getElementById("issueSeverityChart").innerHTML = `
+        <div class="severity-grid">
+          <div class="head">Issue Type</div>
+          <div class="head">Minor</div>
+          <div class="head">Major</div>
+          <div class="head">Critical</div>
+          ${types.map(type => `
+            <div>${esc(type)}</div>
+            ${["minor", "major", "critical"].map(severity => {
+              const count = counts[type][severity] || 0;
+              const opacity = 0.18 + (count / max * 0.82);
+              return `<div class="severity-cell severity-${severity}" style="opacity:${count ? opacity.toFixed(2) : 0.28}">${count}</div>`;
+            }).join("")}
+          `).join("")}
+        </div>
+      `;
+    }
+
+    function issueCounts(run) {
+      const counts = {};
+      for (const result of run.results || []) {
+        for (const error of resultErrors(result)) {
+          const type = error.type || "other";
+          counts[type] = (counts[type] || 0) + 1;
+        }
+      }
+      return counts;
+    }
+
+    function issueSeverityCounts(run) {
+      const counts = {};
+      for (const result of run.results || []) {
+        for (const error of resultErrors(result)) {
+          const type = error.type || "other";
+          const severity = error.severity || "major";
+          if (!counts[type]) counts[type] = { minor: 0, major: 0, critical: 0 };
+          counts[type][severity] = (counts[type][severity] || 0) + 1;
+        }
+      }
+      return counts;
+    }
+
+    function totalSeverity(row) {
+      return (row.minor || 0) + (row.major || 0) + (row.critical || 0);
+    }
+
     function modelMetric(row, key) {
       const value = row[key];
       if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -949,7 +1289,8 @@ INDEX_TEMPLATE = r"""<!doctype html>
 
     function renderMatrix(run) {
       const models = run.models || [];
-      const rows = (run.summary?.matrix || []).map(row => {
+      const matrixRows = sortedRows(run.summary?.matrix || [], sortStates.matrix, matrixSortValue);
+      const rows = matrixRows.map(row => {
         const cells = models.map(model => {
           const cell = row.cells?.[model] || {};
           const score = cell.score == null ? "NA" : cell.score;
@@ -962,7 +1303,17 @@ INDEX_TEMPLATE = r"""<!doctype html>
         { key: "case", label: "Case" },
         { key: "category", label: "Category" },
         ...models.map(model => ({ key: model, label: model }))
-      ], rows);
+      ], rows, key => {
+        toggleSort(sortStates.matrix, key);
+        renderMatrix(currentRun());
+      });
+    }
+
+    function matrixSortValue(row, key) {
+      if (key === "case") return String(row.case_id || "");
+      if (key === "category") return String(row.category || "");
+      const score = row.cells?.[key]?.score;
+      return typeof score === "number" && Number.isFinite(score) ? score : -1;
     }
 
     function renderCompare(run) {
@@ -1076,15 +1427,11 @@ INDEX_TEMPLATE = r"""<!doctype html>
 
     function renderDetails(run) {
       const caseMap = Object.fromEntries((run.cases || []).map(item => [item.id, item]));
-      let results = (run.results || []).filter(resultHasSelectedError);
-      results = results.slice().sort((a, b) => {
-        const dir = sortState.dir === "asc" ? 1 : -1;
-        const av = detailSortValue(a, sortState.key);
-        const bv = detailSortValue(b, sortState.key);
-        if (av < bv) return -1 * dir;
-        if (av > bv) return 1 * dir;
-        return 0;
-      });
+      let results = sortedRows(
+        (run.results || []).filter(resultHasSelectedError),
+        sortStates.detail,
+        detailSortValue
+      );
       const rows = [];
       results.forEach((result, index) => {
         const caseInfo = caseMap[result.case_id] || {};
@@ -1133,8 +1480,11 @@ INDEX_TEMPLATE = r"""<!doctype html>
         { key: "power", label: "Avg Power" },
         { key: "vram", label: "Peak VRAM" },
         { key: "gpu", label: "GPU Busy" },
-        { key: "errors", label: "Errors" }
-      ], rows);
+        { key: "errors", label: "Judge Issues" }
+      ], rows, key => {
+        toggleSort(sortStates.detail, key);
+        renderDetails(currentRun());
+      });
       document.querySelectorAll(".toggle").forEach(button => {
         button.addEventListener("click", () => {
           const row = document.getElementById(button.dataset.detail);
@@ -1215,6 +1565,7 @@ INDEX_TEMPLATE = r"""<!doctype html>
       renderLeaderboard(run);
       renderModelTable(run);
       renderTelemetry(run);
+      renderOutcomeGraphs(run);
       renderMatrix(run);
       renderCompare(run);
       renderDetails(run);
