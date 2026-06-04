@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .judge_codex import ERROR_TYPES
+from .prompt import CANONICAL_PROMPT_TEMPLATE
 from .report import load_run, refresh_summary
 
 
@@ -18,7 +19,12 @@ def generate_site(runs_dir: str | Path, site_dir: str | Path) -> Path:
     data_path.mkdir(parents=True, exist_ok=True)
 
     runs = _discover_runs(runs_path)
-    payload = {"runs": [], "data": {}, "error_types": sorted(ERROR_TYPES)}
+    payload = {
+        "runs": [],
+        "data": {},
+        "error_types": sorted(ERROR_TYPES),
+        "prompt_template": CANONICAL_PROMPT_TEMPLATE,
+    }
     latest_run_id = ""
     for run_file in runs:
         run_data = load_run(run_file)
@@ -36,12 +42,19 @@ def generate_site(runs_dir: str | Path, site_dir: str | Path) -> Path:
         payload["data"][run_id] = public_run_data
         target = data_path / f"{run_id}.json"
         target.write_text(json.dumps(public_run_data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        summary_target = data_path / f"{run_id}-summary.json"
+        summary_target.write_text(
+            json.dumps(make_public_summary_data(public_run_data), indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
         latest_run_id = run_id
 
     if latest_run_id:
         shutil.copyfile(data_path / f"{latest_run_id}.json", data_path / "latest-run.json")
+        shutil.copyfile(data_path / f"{latest_run_id}-summary.json", data_path / "latest-summary.json")
     else:
         (data_path / "latest-run.json").write_text("{}\n", encoding="utf-8")
+        (data_path / "latest-summary.json").write_text("{}\n", encoding="utf-8")
 
     index_html = _render_index(payload)
     index_path = site_path / "index.html"
@@ -91,6 +104,22 @@ def make_public_run_data(run_data: dict[str, Any]) -> dict[str, Any]:
             }
         )
     return public
+
+
+def make_public_summary_data(run_data: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "run_id": run_data.get("run_id", ""),
+        "created_at": run_data.get("created_at", ""),
+        "judge_enabled": run_data.get("judge_enabled", False),
+        "judge_model": run_data.get("judge_model"),
+        "judge_reasoning_effort": run_data.get("judge_reasoning_effort"),
+        "judge_tier": run_data.get("judge_tier"),
+        "model_count": len(run_data.get("models") or []),
+        "case_count": len(run_data.get("cases") or []),
+        "result_count": len(run_data.get("results") or []),
+        "telemetry": deepcopy(run_data.get("telemetry") or {}),
+        "summary": deepcopy(run_data.get("summary") or {}),
+    }
 
 
 def _public_judge(judge: dict[str, Any]) -> dict[str, Any]:
@@ -193,6 +222,27 @@ INDEX_TEMPLATE = r"""<!doctype html>
       flex-wrap: wrap;
       justify-content: flex-end;
     }
+    .top-nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 16px;
+    }
+    .nav-button {
+      border: 1px solid var(--ink);
+      background: var(--panel);
+      color: var(--ink);
+      min-height: 36px;
+      padding: 7px 10px;
+      cursor: pointer;
+      box-shadow: 3px 3px 0 rgba(24, 23, 19, 0.12);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.82rem;
+    }
+    .nav-button.active {
+      background: var(--ink);
+      color: #fff;
+    }
     select, .download, .filter-chip {
       border: 1px solid var(--ink);
       background: var(--panel);
@@ -247,8 +297,81 @@ INDEX_TEMPLATE = r"""<!doctype html>
       grid-template-columns: minmax(0, 1fr);
       gap: 20px;
     }
+    .view[hidden] {
+      display: none;
+    }
     section {
       min-width: 0;
+    }
+    .about-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .about-panel,
+    .test-browser {
+      border: 2px solid var(--ink);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      padding: 15px;
+      min-width: 0;
+    }
+    .about-panel.wide {
+      grid-column: 1 / -1;
+    }
+    .about-panel h3,
+    .test-card h3 {
+      margin: 0 0 10px;
+      font-size: 1.2rem;
+      line-height: 1.1;
+    }
+    .about-panel p,
+    .about-panel li {
+      line-height: 1.42;
+      margin: 0 0 9px;
+    }
+    .about-panel ul {
+      margin: 0;
+      padding-left: 20px;
+    }
+    .prompt-box {
+      border: 1px solid var(--line);
+      background: #fffdf7;
+      padding: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.84rem;
+    }
+    .test-top {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) auto;
+      gap: 12px;
+      align-items: start;
+      margin-bottom: 12px;
+    }
+    .pager {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      justify-content: flex-end;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.82rem;
+    }
+    .test-card {
+      display: grid;
+      gap: 12px;
+    }
+    .test-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.78rem;
+    }
+    .test-meta span {
+      border: 1px solid var(--line);
+      background: #fffdf7;
+      padding: 5px 7px;
     }
     .viz-wrap {
       display: grid;
@@ -725,11 +848,14 @@ INDEX_TEMPLATE = r"""<!doctype html>
       header { grid-template-columns: 1fr; align-items: start; }
       .controls { justify-content: flex-start; }
       .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .about-grid,
+      .test-top { grid-template-columns: 1fr; }
       .detail-grid { grid-template-columns: 1fr; }
       .compare-controls,
       .compare-reference { grid-template-columns: 1fr; }
       .chart-grid { grid-template-columns: 1fr; }
       .bar-row { grid-template-columns: 1fr; }
+      .pager { justify-content: flex-start; }
       .compare-actions { justify-content: flex-start; }
       h1 { font-size: 2.35rem; }
     }
@@ -744,85 +870,144 @@ INDEX_TEMPLATE = r"""<!doctype html>
     <header>
       <div>
         <h1>ChirperBench Scores</h1>
+        <nav class="top-nav" aria-label="Site sections">
+          <button class="nav-button active" type="button" data-view="scores">Scores</button>
+          <button class="nav-button" type="button" data-view="about">About ChirperBench</button>
+          <button class="nav-button" type="button" data-view="tests">View Tests</button>
+        </nav>
       </div>
       <div class="controls">
         <select id="runSelect" aria-label="Run"></select>
-        <a class="download" id="downloadRun" href="data/latest-run.json" download>run.json</a>
-        <a class="download" id="downloadSummary" href="#" download>summary.md</a>
+        <a class="download" id="downloadRun" href="data/latest-run.json" target="_blank" rel="noopener">run.json</a>
+        <a class="download" id="downloadSummary" href="data/latest-summary.json" target="_blank" rel="noopener">summary.json</a>
       </div>
     </header>
 
-    <div class="stats" id="stats"></div>
+    <div class="view" id="scoresView">
+      <div class="stats" id="stats"></div>
 
-    <div class="grid">
-      <section>
-        <h2>Overall Leaderboard</h2>
-        <p class="sort-hint">Click any column header to sort. Highlighted rows mark highest score, lowest latency, and best score per second.</p>
-        <div class="table-wrap"><table id="leaderboardTable"></table></div>
-      </section>
+      <div class="grid">
+        <section>
+          <h2>Overall Leaderboard</h2>
+          <p class="sort-hint">Click any column header to sort. Highlighted rows mark highest score, lowest latency, and best score per second.</p>
+          <div class="table-wrap"><table id="leaderboardTable"></table></div>
+        </section>
 
-      <section>
-        <h2>Model Metrics</h2>
-        <p class="table-note">Judge issues are model-output mistakes found by the judge. One result can have multiple issues; run failures are shown separately as statuses.</p>
-        <div class="table-wrap"><table id="modelTable"></table></div>
-      </section>
+        <section>
+          <h2>Model Metrics</h2>
+          <p class="table-note">Judge issues are model-output mistakes found by the judge. One result can have multiple issues; run failures are shown separately as statuses.</p>
+          <div class="table-wrap"><table id="modelTable"></table></div>
+        </section>
 
-      <section>
-        <h2>Telemetry Graphs</h2>
-        <div class="viz-wrap">
-          <div class="plot-head">
-            <label for="metricSelect">Score vs</label>
-            <select id="metricSelect" aria-label="Telemetry metric"></select>
+        <section>
+          <h2>Telemetry Graphs</h2>
+          <div class="viz-wrap">
+            <div class="plot-head">
+              <label for="metricSelect">Score vs</label>
+              <select id="metricSelect" aria-label="Telemetry metric"></select>
+            </div>
+            <div class="plot-card" id="scatterPlot"></div>
+            <div class="metric-note" id="telemetryNote"></div>
           </div>
-          <div class="plot-card" id="scatterPlot"></div>
-          <div class="metric-note" id="telemetryNote"></div>
-        </div>
-      </section>
+        </section>
 
-      <section>
-        <h2>Outcome Graphs</h2>
-        <div class="chart-grid">
-          <div class="chart-panel">
-            <div class="chart-title">Pass / Fail by Transcript Category</div>
-            <div id="categoryOutcomeChart"></div>
-          </div>
-          <div class="chart-panel">
-            <div class="chart-title">Judge Issues by Type</div>
-            <div id="issueTypeChart"></div>
-          </div>
-          <div class="chart-panel wide">
-            <div class="chart-title">Issue Type by Severity</div>
-            <div id="issueSeverityChart"></div>
-          </div>
-        </div>
-      </section>
-
-      <section>
-        <h2>Case Matrix</h2>
-        <div class="table-wrap"><table id="matrixTable"></table></div>
-      </section>
-
-      <section>
-        <h2>Compare Outputs</h2>
-        <div class="compare-wrap">
-          <div class="compare-controls">
-            <select id="compareCaseSelect" aria-label="Transcript to compare"></select>
-            <div class="compare-actions">
-              <button class="small-button" id="compareTop" type="button">Top 6</button>
-              <button class="small-button" id="compareAll" type="button">All</button>
-              <button class="small-button" id="compareClear" type="button">Clear</button>
+        <section>
+          <h2>Outcome Graphs</h2>
+          <div class="chart-grid">
+            <div class="chart-panel">
+              <div class="chart-title">Pass / Fail by Transcript Category</div>
+              <div id="categoryOutcomeChart"></div>
+            </div>
+            <div class="chart-panel">
+              <div class="chart-title">Judge Issues by Type</div>
+              <div id="issueTypeChart"></div>
+            </div>
+            <div class="chart-panel wide">
+              <div class="chart-title">Issue Type by Severity</div>
+              <div id="issueSeverityChart"></div>
             </div>
           </div>
-          <div class="model-picker" id="compareModels"></div>
-          <div class="compare-reference" id="compareReference"></div>
-          <div class="compare-strip" id="compareGrid"></div>
+        </section>
+
+        <section>
+          <h2>Case Matrix</h2>
+          <div class="table-wrap"><table id="matrixTable"></table></div>
+        </section>
+
+        <section>
+          <h2>Compare Outputs</h2>
+          <div class="compare-wrap">
+            <div class="compare-controls">
+              <select id="compareCaseSelect" aria-label="Transcript to compare"></select>
+              <div class="compare-actions">
+                <button class="small-button" id="compareTop" type="button">Top 6</button>
+                <button class="small-button" id="compareAll" type="button">All</button>
+                <button class="small-button" id="compareClear" type="button">Clear</button>
+              </div>
+            </div>
+            <div class="model-picker" id="compareModels"></div>
+            <div class="compare-reference" id="compareReference"></div>
+            <div class="compare-strip" id="compareGrid"></div>
+          </div>
+        </section>
+
+        <section>
+          <h2>Detailed Results</h2>
+          <div class="filters" id="filters"></div>
+          <div class="table-wrap"><table id="detailTable"></table></div>
+        </section>
+      </div>
+    </div>
+
+    <div class="view" id="aboutView" hidden>
+      <section>
+        <h2>About ChirperBench</h2>
+        <div class="about-grid">
+          <article class="about-panel">
+            <h3>What This Measures</h3>
+            <p>ChirperBench checks whether local Ollama models can clean up dictated transcripts without treating the dictated words as instructions to execute.</p>
+            <p>The suite stresses command-like text, dictated questions, email requests, markdown, URLs, code identifiers, spelling corrections, mixed formatting, and cases where no change is needed.</p>
+          </article>
+          <article class="about-panel">
+            <h3>How A Run Works</h3>
+            <ul>
+              <li>Each installed Ollama model is run sequentially against every transcript case.</li>
+              <li>The model receives the same formatter prompt and only the raw transcript.</li>
+              <li>Outputs, runtime, statuses, and optional AMD sysfs GPU telemetry are saved in machine-readable run data.</li>
+              <li>When judging is enabled, Codex CLI uses gpt-5.5 with high reasoning to score the output against the expected result.</li>
+            </ul>
+          </article>
+          <article class="about-panel">
+            <h3>Scoring</h3>
+            <p>Scores run from 0 to 100. Passing means the judge accepted the cleaned transcript as meeting the case target.</p>
+            <p>Judge issues are model-output mistakes, not necessarily process crashes. One result can have several judge issues, such as answering a dictated question, refusing a command-like transcript, leaking spoken edits, or inventing extra text.</p>
+          </article>
+          <article class="about-panel">
+            <h3>Run Context</h3>
+            <div id="aboutRunFacts"></div>
+          </article>
+          <article class="about-panel wide">
+            <h3>Formatter Prompt</h3>
+            <pre class="prompt-box" id="promptTemplate"></pre>
+          </article>
         </div>
       </section>
+    </div>
 
+    <div class="view" id="testsView" hidden>
       <section>
-        <h2>Detailed Results</h2>
-        <div class="filters" id="filters"></div>
-        <div class="table-wrap"><table id="detailTable"></table></div>
+        <h2>View Tests</h2>
+        <div class="test-browser">
+          <div class="test-top">
+            <select id="testSelect" aria-label="Test case"></select>
+            <div class="pager">
+              <button class="small-button" id="testPrev" type="button">Previous</button>
+              <span id="testPage"></span>
+              <button class="small-button" id="testNext" type="button">Next</button>
+            </div>
+          </div>
+          <article class="test-card" id="testCard"></article>
+        </div>
       </section>
     </div>
   </div>
@@ -835,9 +1020,16 @@ INDEX_TEMPLATE = r"""<!doctype html>
     const metricSelect = document.getElementById("metricSelect");
     const compareCaseSelect = document.getElementById("compareCaseSelect");
     const compareModels = document.getElementById("compareModels");
+    const testSelect = document.getElementById("testSelect");
+    const views = {
+      scores: document.getElementById("scoresView"),
+      about: document.getElementById("aboutView"),
+      tests: document.getElementById("testsView")
+    };
     const selectedErrors = new Set();
     const selectedCompareModels = new Set();
     let currentRunId = embedded.runs.length ? embedded.runs[embedded.runs.length - 1].id : "";
+    let testCaseIndex = 0;
     const sortStates = {
       leaderboard: { key: "rank", dir: "asc" },
       model: { key: "average_score", dir: "desc" },
@@ -904,6 +1096,38 @@ INDEX_TEMPLATE = r"""<!doctype html>
       return embedded.data[currentRunId] || null;
     }
 
+    function viewFromHash() {
+      const key = window.location.hash.replace(/^#/, "");
+      return Object.prototype.hasOwnProperty.call(views, key) ? key : "scores";
+    }
+
+    function setupViewNavigation() {
+      document.querySelectorAll(".nav-button[data-view]").forEach(button => {
+        button.addEventListener("click", () => {
+          showView(button.dataset.view || "scores", true);
+        });
+      });
+      window.addEventListener("hashchange", () => showView(viewFromHash(), false));
+      window.addEventListener("popstate", () => showView(viewFromHash(), false));
+      showView(viewFromHash(), false);
+    }
+
+    function showView(view, updateHash) {
+      const next = Object.prototype.hasOwnProperty.call(views, view) ? view : "scores";
+      Object.entries(views).forEach(([key, element]) => {
+        element.hidden = key !== next;
+      });
+      document.querySelectorAll(".nav-button[data-view]").forEach(button => {
+        button.classList.toggle("active", button.dataset.view === next);
+      });
+      if (updateHash) {
+        const nextUrl = next === "scores"
+          ? `${window.location.pathname}${window.location.search}`
+          : `#${next}`;
+        window.history.pushState(null, "", nextUrl);
+      }
+    }
+
     function setupRunSelect() {
       runSelect.innerHTML = embedded.runs.map(run => {
         const label = `${run.id} (${run.result_count} results)`;
@@ -932,6 +1156,22 @@ INDEX_TEMPLATE = r"""<!doctype html>
       document.getElementById("compareClear").addEventListener("click", () => {
         selectedCompareModels.clear();
         renderCompare(currentRun());
+      });
+    }
+
+    function setupTestBrowser() {
+      testSelect.addEventListener("change", event => {
+        testCaseIndex = Number(event.target.value || 0);
+        renderTests(currentRun());
+      });
+      document.getElementById("testPrev").addEventListener("click", () => {
+        testCaseIndex = Math.max(0, testCaseIndex - 1);
+        renderTests(currentRun());
+      });
+      document.getElementById("testNext").addEventListener("click", () => {
+        const count = (currentRun()?.cases || []).length;
+        testCaseIndex = Math.min(Math.max(0, count - 1), testCaseIndex + 1);
+        renderTests(currentRun());
       });
     }
 
@@ -990,6 +1230,66 @@ INDEX_TEMPLATE = r"""<!doctype html>
       ].map(([label, value, detail]) => `
         <div class="stat"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div><div class="detail">${esc(detail)}</div></div>
       `).join("");
+    }
+
+    function renderAbout(run) {
+      document.getElementById("promptTemplate").textContent = embedded.prompt_template || "";
+      if (!run) {
+        document.getElementById("aboutRunFacts").innerHTML = `<div class="empty">No run data found.</div>`;
+        return;
+      }
+      const summary = run.summary || {};
+      const telemetry = summary.telemetry || {};
+      const facts = [
+        ["run", run.run_id || "unknown"],
+        ["models", summary.model_count || 0],
+        ["transcripts", summary.case_count || 0],
+        ["results", summary.result_count || 0],
+        ["judge", run.judge_enabled ? `${run.judge_model || "unknown"} / ${run.judge_reasoning_effort || "default"}` : "disabled"],
+        ["judge tier", run.judge_tier || "standard"],
+        ["telemetry", telemetry.available ? (telemetry.providers || []).join(", ") || "available" : "none"],
+        ["samples", telemetry.sample_count || 0]
+      ];
+      document.getElementById("aboutRunFacts").innerHTML = `
+        <div class="test-meta">
+          ${facts.map(([label, value]) => `<span><b>${esc(label)}</b>: ${esc(value)}</span>`).join("")}
+        </div>
+      `;
+    }
+
+    function renderTests(run) {
+      const cases = run?.cases || [];
+      if (!cases.length) {
+        testSelect.innerHTML = "";
+        document.getElementById("testPage").textContent = "0 / 0";
+        document.getElementById("testCard").innerHTML = `<div class="empty">No test cases found.</div>`;
+        document.getElementById("testPrev").disabled = true;
+        document.getElementById("testNext").disabled = true;
+        return;
+      }
+      testCaseIndex = Math.max(0, Math.min(testCaseIndex, cases.length - 1));
+      testSelect.innerHTML = cases.map((item, index) => `
+        <option value="${index}">${index + 1}. ${esc(item.id)} · ${esc(item.category || "")}</option>
+      `).join("");
+      testSelect.value = String(testCaseIndex);
+      document.getElementById("testPage").textContent = `${testCaseIndex + 1} / ${cases.length}`;
+      document.getElementById("testPrev").disabled = testCaseIndex === 0;
+      document.getElementById("testNext").disabled = testCaseIndex === cases.length - 1;
+      const item = cases[testCaseIndex];
+      document.getElementById("testCard").innerHTML = `
+        <div>
+          <h3>${esc(item.id)}</h3>
+          <div class="test-meta">
+            <span>${esc(item.category || "uncategorized")}</span>
+            <span>case ${testCaseIndex + 1} of ${cases.length}</span>
+          </div>
+        </div>
+        <div class="detail-grid">
+          <div class="detail-block"><b>Raw Transcript</b><pre>${esc(item.transcript || "")}</pre></div>
+          <div class="detail-block"><b>Expected Output</b><pre>${esc(item.expected || "")}</pre></div>
+        </div>
+        ${item.notes ? `<div class="detail-block"><b>Notes</b><pre>${esc(item.notes)}</pre></div>` : ""}
+      `;
     }
 
     function table(id, headers, rows, onSort = null) {
@@ -1575,30 +1875,19 @@ INDEX_TEMPLATE = r"""<!doctype html>
       const runLink = document.getElementById("downloadRun");
       runLink.href = runId ? `data/${encodeURIComponent(runId)}.json` : "data/latest-run.json";
       const summary = document.getElementById("downloadSummary");
-      const md = renderSummaryMarkdown(run);
-      const blob = new Blob([md], { type: "text/markdown" });
-      summary.href = URL.createObjectURL(blob);
-      summary.download = runId ? `${runId}-summary.md` : "summary.md";
-    }
-
-    function renderSummaryMarkdown(run) {
-      if (!run) return "";
-      const lines = [`# ChirperBench Run ${run.run_id || ""}`, "", "## Leaderboard", ""];
-      for (const row of run.summary?.leaderboard || []) {
-        lines.push(`${row.rank}. ${row.model}: ${number(row.average_score, 2)} (${pct(row.pass_rate)})`);
-      }
-      lines.push("");
-      return lines.join("\n");
+      summary.href = runId ? `data/${encodeURIComponent(runId)}-summary.json` : "data/latest-summary.json";
     }
 
     function render() {
       const run = currentRun();
       if (!run) {
-        document.querySelector(".grid").innerHTML = `<div class="empty">No run data found.</div>`;
         document.getElementById("stats").innerHTML = "";
+        renderAbout(null);
+        renderTests(null);
         return;
       }
       setupDownloads(run);
+      renderAbout(run);
       renderStats(run);
       renderLeaderboard(run);
       renderModelTable(run);
@@ -1606,13 +1895,16 @@ INDEX_TEMPLATE = r"""<!doctype html>
       renderOutcomeGraphs(run);
       renderMatrix(run);
       renderCompare(run);
+      renderTests(run);
       renderDetails(run);
     }
 
+    setupViewNavigation();
     setupRunSelect();
     setupFilters();
     setupMetricSelect();
     setupCompareButtons();
+    setupTestBrowser();
     render();
   </script>
 </body>

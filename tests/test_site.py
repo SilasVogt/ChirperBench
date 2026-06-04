@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from chirperbench.report import write_run_artifacts
-from chirperbench.site import generate_site, make_public_run_data
+from chirperbench.site import generate_site, make_public_run_data, make_public_summary_data
 
 
 class SiteTest(unittest.TestCase):
@@ -71,6 +71,8 @@ class SiteTest(unittest.TestCase):
             index_path = generate_site(runs_dir, site_dir)
             html = index_path.read_text(encoding="utf-8")
             self.assertIn("Overall Leaderboard", html)
+            self.assertIn("About ChirperBench", html)
+            self.assertIn("View Tests", html)
             self.assertIn("Model Metrics", html)
             self.assertIn("Telemetry Graphs", html)
             self.assertIn("Outcome Graphs", html)
@@ -95,7 +97,13 @@ class SiteTest(unittest.TestCase):
             self.assertIn("answered_content", html)
             self.assertIn("partial_mixed_task", html)
             self.assertIn("run.json", html)
-            self.assertIn("summary.md", html)
+            self.assertIn("summary.json", html)
+            self.assertIn('target="_blank"', html)
+            self.assertIn("testCard", html)
+            self.assertIn("Raw Transcript", html)
+            self.assertIn("Expected Output", html)
+            self.assertIn("Formatter Prompt", html)
+            self.assertIn("This is the original transcript", html)
 
             latest = json.loads((site_dir / "data" / "latest-run.json").read_text(encoding="utf-8"))
             self.assertEqual(latest["run_id"], "20260101-000000")
@@ -104,6 +112,10 @@ class SiteTest(unittest.TestCase):
             self.assertNotIn("stdout", latest["results"][0]["judge"])
             self.assertNotIn("command", latest["results"][0]["judge"])
             self.assertTrue((site_dir / "data" / "20260101-000000.json").exists())
+            self.assertTrue((site_dir / "data" / "20260101-000000-summary.json").exists())
+            summary = json.loads((site_dir / "data" / "latest-summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(summary["run_id"], "20260101-000000")
+            self.assertIn("leaderboard", summary["summary"])
 
     def test_public_run_data_strips_large_process_logs(self):
         public = make_public_run_data(
@@ -136,6 +148,22 @@ class SiteTest(unittest.TestCase):
         self.assertNotIn("ollama_command", result)
         self.assertNotIn("stdout", result["judge"])
         self.assertNotIn("command", result["judge"])
+
+    def test_public_summary_data_omits_results(self):
+        public = make_public_summary_data(
+            {
+                "run_id": "run",
+                "models": ["model-a"],
+                "cases": [{"id": "case-a"}],
+                "results": [{"model": "model-a"}],
+                "summary": {"leaderboard": []},
+            }
+        )
+        self.assertEqual(public["run_id"], "run")
+        self.assertEqual(public["model_count"], 1)
+        self.assertEqual(public["case_count"], 1)
+        self.assertEqual(public["result_count"], 1)
+        self.assertNotIn("results", public)
 
 
 if __name__ == "__main__":
