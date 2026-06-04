@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -24,16 +25,17 @@ def generate_site(runs_dir: str | Path, site_dir: str | Path) -> Path:
         run_id = str(run_data.get("run_id") or run_file.parent.name)
         run_data["run_id"] = run_id
         refresh_summary(run_data)
+        public_run_data = make_public_run_data(run_data)
         payload["runs"].append(
             {
                 "id": run_id,
-                "created_at": run_data.get("created_at", ""),
-                "result_count": len(run_data.get("results") or []),
+                "created_at": public_run_data.get("created_at", ""),
+                "result_count": len(public_run_data.get("results") or []),
             }
         )
-        payload["data"][run_id] = run_data
+        payload["data"][run_id] = public_run_data
         target = data_path / f"{run_id}.json"
-        target.write_text(json.dumps(run_data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        target.write_text(json.dumps(public_run_data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         latest_run_id = run_id
 
     if latest_run_id:
@@ -53,6 +55,67 @@ def _discover_runs(runs_path: Path) -> list[Path]:
     if not runs_path.exists():
         return []
     return sorted(path / "run.json" for path in runs_path.iterdir() if (path / "run.json").exists())
+
+
+def make_public_run_data(run_data: dict[str, Any]) -> dict[str, Any]:
+    public = {
+        "run_id": run_data.get("run_id", ""),
+        "created_at": run_data.get("created_at", ""),
+        "models": list(run_data.get("models") or []),
+        "cases": deepcopy(run_data.get("cases") or []),
+        "judge_enabled": run_data.get("judge_enabled", False),
+        "judge_model": run_data.get("judge_model"),
+        "judge_reasoning_effort": run_data.get("judge_reasoning_effort"),
+        "judge_tier": run_data.get("judge_tier"),
+        "options": deepcopy(run_data.get("options") or {}),
+        "telemetry": deepcopy(run_data.get("telemetry") or {}),
+        "summary": deepcopy(run_data.get("summary") or {}),
+        "results": [],
+    }
+    for result in run_data.get("results") or []:
+        judge = result.get("judge") or {}
+        public["results"].append(
+            {
+                "model": result.get("model", ""),
+                "case_id": result.get("case_id", ""),
+                "category": result.get("category", ""),
+                "output": result.get("output", ""),
+                "score": result.get("score", 0),
+                "passed": result.get("passed", False),
+                "latency_seconds": result.get("latency_seconds", 0.0),
+                "timed_out": result.get("timed_out", False),
+                "ollama_status": result.get("ollama_status", ""),
+                "judge_status": result.get("judge_status", ""),
+                "telemetry": _public_telemetry(result.get("telemetry") or {}),
+                "judge": _public_judge(judge) if judge else None,
+            }
+        )
+    return public
+
+
+def _public_judge(judge: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "score": judge.get("score", 0),
+        "passed": judge.get("passed", False),
+        "summary": judge.get("summary", ""),
+        "errors": deepcopy(judge.get("errors") or []),
+        "ideal_output": judge.get("ideal_output", ""),
+        "judge_status": judge.get("judge_status", ""),
+        "returncode": judge.get("returncode"),
+        "elapsed_seconds": judge.get("elapsed_seconds", 0.0),
+    }
+
+
+def _public_telemetry(telemetry: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "status": telemetry.get("status", ""),
+        "provider": telemetry.get("provider", ""),
+        "reason": telemetry.get("reason", ""),
+        "sample_count": telemetry.get("sample_count", 0),
+        "elapsed_seconds": telemetry.get("elapsed_seconds", 0.0),
+        "metrics": deepcopy(telemetry.get("metrics") or {}),
+        "device": deepcopy(telemetry.get("device") or {}),
+    }
 
 
 def _render_index(payload: dict[str, Any]) -> str:
@@ -247,6 +310,118 @@ INDEX_TEMPLATE = r"""<!doctype html>
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       font-size: 0.82rem;
     }
+    .compare-wrap {
+      border: 2px solid var(--ink);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      padding: 13px;
+      display: grid;
+      gap: 12px;
+    }
+    .compare-controls {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) auto;
+      gap: 12px;
+      align-items: start;
+    }
+    .compare-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+    .small-button {
+      border: 1px solid var(--ink);
+      background: #fff;
+      color: var(--ink);
+      min-height: 34px;
+      padding: 7px 10px;
+      cursor: pointer;
+      box-shadow: 3px 3px 0 rgba(24, 23, 19, 0.12);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.82rem;
+    }
+    .model-picker {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .model-chip {
+      border: 1px solid var(--line);
+      background: #fffdf7;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 9px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.78rem;
+      cursor: pointer;
+    }
+    .model-chip input {
+      accent-color: var(--green);
+    }
+    .compare-reference {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .compare-strip {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: minmax(320px, 1fr);
+      gap: 12px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+    .compare-card {
+      border: 1px solid var(--ink);
+      background: #fff;
+      min-width: 0;
+      display: grid;
+      grid-template-rows: auto auto minmax(160px, 1fr) auto;
+    }
+    .compare-card header {
+      display: block;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      margin: 0;
+      padding: 10px 11px;
+      background: var(--ink);
+      color: #fff;
+    }
+    .compare-card header strong {
+      display: block;
+      line-height: 1.15;
+    }
+    .compare-meta {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1px;
+      background: var(--line);
+      border-bottom: 1px solid var(--line);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.77rem;
+    }
+    .compare-meta span {
+      background: #fffdf7;
+      padding: 7px 9px;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    .compare-output,
+    .compare-summary {
+      padding: 11px;
+      min-width: 0;
+    }
+    .compare-output {
+      border-bottom: 1px solid var(--line);
+    }
+    .compare-summary {
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.78rem;
+      background: #fbfaf5;
+    }
     .table-wrap {
       overflow: auto;
       border: 2px solid var(--ink);
@@ -388,6 +563,9 @@ INDEX_TEMPLATE = r"""<!doctype html>
       .controls { justify-content: flex-start; }
       .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .detail-grid { grid-template-columns: 1fr; }
+      .compare-controls,
+      .compare-reference { grid-template-columns: 1fr; }
+      .compare-actions { justify-content: flex-start; }
       h1 { font-size: 2.35rem; }
     }
     @media (max-width: 520px) {
@@ -440,6 +618,23 @@ INDEX_TEMPLATE = r"""<!doctype html>
       </section>
 
       <section>
+        <h2>Compare Outputs</h2>
+        <div class="compare-wrap">
+          <div class="compare-controls">
+            <select id="compareCaseSelect" aria-label="Transcript to compare"></select>
+            <div class="compare-actions">
+              <button class="small-button" id="compareTop" type="button">Top 6</button>
+              <button class="small-button" id="compareAll" type="button">All</button>
+              <button class="small-button" id="compareClear" type="button">Clear</button>
+            </div>
+          </div>
+          <div class="model-picker" id="compareModels"></div>
+          <div class="compare-reference" id="compareReference"></div>
+          <div class="compare-strip" id="compareGrid"></div>
+        </div>
+      </section>
+
+      <section>
         <h2>Detailed Results</h2>
         <div class="filters" id="filters"></div>
         <div class="table-wrap"><table id="detailTable"></table></div>
@@ -453,10 +648,14 @@ INDEX_TEMPLATE = r"""<!doctype html>
     const runSelect = document.getElementById("runSelect");
     const filters = document.getElementById("filters");
     const metricSelect = document.getElementById("metricSelect");
+    const compareCaseSelect = document.getElementById("compareCaseSelect");
+    const compareModels = document.getElementById("compareModels");
     const selectedErrors = new Set();
+    const selectedCompareModels = new Set();
     let currentRunId = embedded.runs.length ? embedded.runs[embedded.runs.length - 1].id : "";
     let sortState = { key: "model", dir: "asc" };
     let scatterMetricKey = "median_latency_seconds";
+    let compareCaseId = "";
     const scatterMetrics = [
       { key: "median_latency_seconds", label: "median latency", unit: "s" },
       { key: "median_power_w_avg", label: "average power", unit: "W" },
@@ -519,6 +718,25 @@ INDEX_TEMPLATE = r"""<!doctype html>
       runSelect.addEventListener("change", () => {
         currentRunId = runSelect.value;
         render();
+      });
+    }
+
+    function setupCompareButtons() {
+      document.getElementById("compareTop").addEventListener("click", () => {
+        const run = currentRun();
+        selectedCompareModels.clear();
+        for (const model of topModels(run, 6)) selectedCompareModels.add(model);
+        renderCompare(run);
+      });
+      document.getElementById("compareAll").addEventListener("click", () => {
+        const run = currentRun();
+        selectedCompareModels.clear();
+        for (const model of run?.models || []) selectedCompareModels.add(model);
+        renderCompare(run);
+      });
+      document.getElementById("compareClear").addEventListener("click", () => {
+        selectedCompareModels.clear();
+        renderCompare(currentRun());
       });
     }
 
@@ -747,6 +965,115 @@ INDEX_TEMPLATE = r"""<!doctype html>
       ], rows);
     }
 
+    function renderCompare(run) {
+      const cases = run.cases || [];
+      if (!cases.length) {
+        document.getElementById("compareReference").innerHTML = "";
+        document.getElementById("compareGrid").innerHTML = `<div class="empty">No cases in this run.</div>`;
+        return;
+      }
+      if (!cases.some(item => item.id === compareCaseId)) {
+        compareCaseId = cases.find(item => item.id === "onboarding_mixed_format")?.id || cases[0].id;
+      }
+      const availableModels = new Set(run.models || []);
+      for (const model of Array.from(selectedCompareModels)) {
+        if (!availableModels.has(model)) selectedCompareModels.delete(model);
+      }
+      if (!selectedCompareModels.size) {
+        for (const model of topModels(run, 6)) selectedCompareModels.add(model);
+      }
+      compareCaseSelect.innerHTML = cases.map(item => `
+        <option value="${esc(item.id)}">${esc(item.id)} · ${esc(item.category || "")}</option>
+      `).join("");
+      compareCaseSelect.value = compareCaseId;
+      compareCaseSelect.onchange = event => {
+        compareCaseId = event.target.value;
+        renderCompare(currentRun());
+      };
+
+      const models = run.models || [];
+      compareModels.innerHTML = models.map(model => `
+        <label class="model-chip">
+          <input type="checkbox" value="${esc(model)}" ${selectedCompareModels.has(model) ? "checked" : ""}>
+          ${esc(model)}
+        </label>
+      `).join("");
+      compareModels.querySelectorAll("input").forEach(input => {
+        input.addEventListener("change", event => {
+          const model = event.target.value;
+          if (event.target.checked) selectedCompareModels.add(model);
+          else selectedCompareModels.delete(model);
+          renderCompareCards(run);
+        });
+      });
+
+      const caseInfo = cases.find(item => item.id === compareCaseId) || cases[0];
+      document.getElementById("compareReference").innerHTML = `
+        <div class="detail-block"><b>Raw Transcript</b><pre>${esc(caseInfo.transcript || "")}</pre></div>
+        <div class="detail-block"><b>Expected Output</b><pre>${esc(caseInfo.expected || "")}</pre></div>
+      `;
+      renderCompareCards(run);
+    }
+
+    function renderCompareCards(run) {
+      const results = (run.results || [])
+        .filter(result => result.case_id === compareCaseId && selectedCompareModels.has(result.model))
+        .sort((a, b) => (run.models || []).indexOf(a.model) - (run.models || []).indexOf(b.model));
+      if (!results.length) {
+        document.getElementById("compareGrid").innerHTML = `<div class="empty">Select one or more models to compare.</div>`;
+        return;
+      }
+      document.getElementById("compareGrid").innerHTML = results.map(result => {
+        const metrics = result.telemetry?.metrics || {};
+        const errors = resultErrors(result);
+        const summary = result.judge?.summary || result.stderr || "";
+        return `
+          <article class="compare-card">
+            <header>
+              <strong>${esc(result.model)}</strong>
+              <span>${esc(result.case_id)}</span>
+            </header>
+            <div class="compare-meta">
+              <span>score ${esc(result.score ?? 0)}</span>
+              <span class="${result.passed ? "pass" : "fail"}">${result.passed ? "passed" : "failed"}</span>
+              <span>${number(result.latency_seconds, 3)}s</span>
+              <span>${esc(result.judge_status || "no judge")}</span>
+              <span>${metricText(metricValue(metrics, "power_w_avg"), "W", 2)}</span>
+              <span>${metricText(metricValue(metrics, "vram_mb_peak"), "MB", 1)}</span>
+            </div>
+            <div class="compare-output"><pre>${esc(result.output || "")}</pre></div>
+            <div class="compare-summary">
+              <pre>${esc(summaryText(summary, errors))}</pre>
+            </div>
+          </article>
+        `;
+      }).join("");
+    }
+
+    function topModels(run, count) {
+      return (run?.summary?.leaderboard || [])
+        .slice(0, count)
+        .map(row => row.model)
+        .filter(Boolean);
+    }
+
+    function metricValue(metrics, key) {
+      const value = metrics?.[key];
+      return typeof value === "number" && Number.isFinite(value) ? value : null;
+    }
+
+    function summaryText(summary, errors) {
+      const lines = [];
+      if (summary) lines.push(summary);
+      if (errors.length) {
+        lines.push("");
+        for (const error of errors) {
+          lines.push(`${error.type || "other"} (${error.severity || "major"}): ${error.detail || ""}`);
+        }
+      }
+      return lines.join("\n") || "No judge summary.";
+    }
+
     function renderDetails(run) {
       const caseMap = Object.fromEntries((run.cases || []).map(item => [item.id, item]));
       let results = (run.results || []).filter(resultHasSelectedError);
@@ -889,12 +1216,14 @@ INDEX_TEMPLATE = r"""<!doctype html>
       renderModelTable(run);
       renderTelemetry(run);
       renderMatrix(run);
+      renderCompare(run);
       renderDetails(run);
     }
 
     setupRunSelect();
     setupFilters();
     setupMetricSelect();
+    setupCompareButtons();
     render();
   </script>
 </body>

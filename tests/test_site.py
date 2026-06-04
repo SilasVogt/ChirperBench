@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from chirperbench.report import write_run_artifacts
-from chirperbench.site import generate_site
+from chirperbench.site import generate_site, make_public_run_data
 
 
 class SiteTest(unittest.TestCase):
@@ -52,6 +52,9 @@ class SiteTest(unittest.TestCase):
                             },
                         },
                         "judge": {
+                            "stdout": "large stdout log",
+                            "stderr": "large stderr log",
+                            "command": ["codex", "exec"],
                             "summary": "Answered the question instead of transcribing it.",
                             "errors": [
                                 {
@@ -70,6 +73,10 @@ class SiteTest(unittest.TestCase):
             self.assertIn("Overall Leaderboard", html)
             self.assertIn("Model Metrics", html)
             self.assertIn("Telemetry Graphs", html)
+            self.assertIn("Compare Outputs", html)
+            self.assertIn("compareCaseSelect", html)
+            self.assertIn("compareGrid", html)
+            self.assertIn("Top 6", html)
             self.assertIn("Detailed Results", html)
             self.assertIn("Case Matrix", html)
             self.assertIn("average power", html)
@@ -84,7 +91,42 @@ class SiteTest(unittest.TestCase):
             latest = json.loads((site_dir / "data" / "latest-run.json").read_text(encoding="utf-8"))
             self.assertEqual(latest["run_id"], "20260101-000000")
             self.assertTrue(latest["summary"]["telemetry"]["available"])
+            self.assertNotIn("stderr", latest["results"][0])
+            self.assertNotIn("stdout", latest["results"][0]["judge"])
+            self.assertNotIn("command", latest["results"][0]["judge"])
             self.assertTrue((site_dir / "data" / "20260101-000000.json").exists())
+
+    def test_public_run_data_strips_large_process_logs(self):
+        public = make_public_run_data(
+            {
+                "run_id": "run",
+                "models": ["model-a"],
+                "cases": [],
+                "summary": {},
+                "results": [
+                    {
+                        "model": "model-a",
+                        "case_id": "case-a",
+                        "output": "clean text",
+                        "stderr": "ansi spinner log",
+                        "ollama_command": ["ollama", "run"],
+                        "judge": {
+                            "summary": "ok",
+                            "stdout": "huge stdout",
+                            "stderr": "huge stderr",
+                            "command": ["codex", "exec"],
+                            "errors": [],
+                        },
+                    }
+                ],
+            }
+        )
+        result = public["results"][0]
+        self.assertEqual(result["output"], "clean text")
+        self.assertNotIn("stderr", result)
+        self.assertNotIn("ollama_command", result)
+        self.assertNotIn("stdout", result["judge"])
+        self.assertNotIn("command", result["judge"])
 
 
 if __name__ == "__main__":
