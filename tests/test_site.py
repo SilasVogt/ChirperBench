@@ -87,7 +87,7 @@ class SiteTest(unittest.TestCase):
             self.assertIn("compareGrid", html)
             self.assertIn("Top 6", html)
             self.assertIn("Detailed Results", html)
-            self.assertIn("Transcript Matrix", html)
+            self.assertIn("Case Matrix", html)
             self.assertIn("average power", html)
             self.assertIn("peak VRAM", html)
             self.assertIn("average GPU busy", html)

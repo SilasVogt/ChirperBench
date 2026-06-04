@@ -483,6 +483,44 @@
       min-width: 86px;
       font-weight: 800;
     }
+    #matrixTable {
+      --matrix-case-width: 330px;
+      --matrix-category-width: 210px;
+    }
+    #matrixTable th,
+    #matrixTable td {
+      box-sizing: border-box;
+    }
+    #matrixTable th:nth-child(1),
+    #matrixTable td:nth-child(1) {
+      position: sticky;
+      left: 0;
+      width: var(--matrix-case-width);
+      min-width: var(--matrix-case-width);
+      max-width: var(--matrix-case-width);
+      background: var(--panel);
+      z-index: 2;
+    }
+    #matrixTable th:nth-child(2),
+    #matrixTable td:nth-child(2) {
+      position: sticky;
+      left: var(--matrix-case-width);
+      width: var(--matrix-category-width);
+      min-width: var(--matrix-category-width);
+      max-width: var(--matrix-category-width);
+      background: var(--panel);
+      box-shadow: 10px 0 16px rgba(24, 23, 19, 0.13);
+      z-index: 2;
+    }
+    #matrixTable th:nth-child(1),
+    #matrixTable th:nth-child(2) {
+      background: var(--ink);
+      z-index: 4;
+    }
+    #matrixTable tbody tr:hover td:nth-child(1),
+    #matrixTable tbody tr:hover td:nth-child(2) {
+      background: #fff7d8;
+    }
     .pass { color: var(--green); }
     .fail { color: var(--red); }
     .muted { color: var(--muted); }
@@ -635,7 +673,7 @@
       </section>
 
       <section>
-        <h2>Transcript Matrix</h2>
+        <h2>Case Matrix</h2>
         <div class="table-wrap"><table id="matrixTable"></table></div>
       </section>
 
