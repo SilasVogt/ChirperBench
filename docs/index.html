@@ -332,10 +332,30 @@
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       font-size: 0.78rem;
       cursor: pointer;
+      flex-wrap: wrap;
     }
+    .model-chip.pick-score { background: #edf8f1; border-color: var(--green); }
+    .model-chip.pick-fastest { background: #eaf7fa; border-color: var(--cyan); }
+    .model-chip.pick-balanced { background: #fff5d3; border-color: var(--gold); }
+    .model-chip.special-favorite { box-shadow: inset 0 -4px 0 rgba(121, 98, 168, 0.45); }
+    .model-chip.special-funny { box-shadow: inset 0 -4px 0 rgba(180, 61, 47, 0.45); }
     .model-chip input {
       accent-color: var(--green);
     }
+    .chip-text {
+      font-weight: 700;
+    }
+    .compare-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-top: 6px;
+    }
+    .model-badge.badge-score { color: var(--green); background: #edf8f1; }
+    .model-badge.badge-fastest { color: var(--cyan); background: #eaf7fa; }
+    .model-badge.badge-balanced { color: #8a6500; background: #fff5d3; }
+    .model-badge.badge-favorite { color: var(--lavender); background: #f0ecfb; }
+    .model-badge.badge-funny { color: var(--red); background: #fbe9e6; }
     .compare-reference {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -356,6 +376,11 @@
       display: grid;
       grid-template-rows: auto auto minmax(160px, 1fr) auto;
     }
+    .compare-card.pick-score { border-color: var(--green); }
+    .compare-card.pick-fastest { border-color: var(--cyan); }
+    .compare-card.pick-balanced { border-color: var(--gold); }
+    .compare-card.special-favorite { outline: 3px solid rgba(121, 98, 168, 0.35); outline-offset: -5px; }
+    .compare-card.special-funny { outline: 3px dashed rgba(180, 61, 47, 0.45); outline-offset: -5px; }
     .compare-card header {
       display: block;
       border: 0;
@@ -365,6 +390,9 @@
       background: var(--ink);
       color: #fff;
     }
+    .compare-card.pick-score header { background: var(--green); }
+    .compare-card.pick-fastest header { background: var(--cyan); }
+    .compare-card.pick-balanced header { background: var(--gold); color: var(--ink); }
     .compare-card header strong {
       display: block;
       line-height: 1.15;
@@ -892,6 +920,10 @@
       { key: "median_gpu_busy_percent_avg", label: "average GPU busy", unit: "%" },
       { key: "error_count", label: "judge issue count", unit: "" }
     ];
+    const specialCompareModels = {
+      "granite4.1:8b": { label: "Silas' favorite", className: "special-favorite", badgeClass: "badge-favorite" },
+      "lfm2.5-thinking:1.2b": { label: "extremely funny", className: "special-funny", badgeClass: "badge-funny" }
+    };
 
     function esc(value) {
       return String(value ?? "").replace(/[&<>"']/g, char => ({
@@ -1202,12 +1234,35 @@
     }
 
     function pickBadges(row, picks) {
+      const badges = badgeSpans(modelBadgeItems(row.model, picks));
+      return badges ? `<div>${badges}</div>` : "";
+    }
+
+    function modelToneClasses(model, picks) {
+      const special = specialCompareModels[model];
+      return [
+        pickClasses({ model }, picks),
+        special ? special.className : ""
+      ].filter(Boolean).join(" ");
+    }
+
+    function modelBadgeItems(model, picks) {
       const badges = [];
-      if (picks.score?.model === row.model) badges.push("highest score");
-      if (picks.fastest?.model === row.model) badges.push("lowest latency");
-      if (picks.balanced?.model === row.model) badges.push("best score/s");
-      if (!badges.length) return "";
-      return `<div>${badges.map(label => `<span class="model-badge">${esc(label)}</span>`).join("")}</div>`;
+      if (picks.score?.model === model) badges.push({ label: "highest score", className: "badge-score" });
+      if (picks.fastest?.model === model) badges.push({ label: "lowest latency", className: "badge-fastest" });
+      if (picks.balanced?.model === model) badges.push({ label: "best score/s", className: "badge-balanced" });
+      const special = specialCompareModels[model];
+      if (special) badges.push({ label: special.label, className: special.badgeClass });
+      return badges;
+    }
+
+    function badgeSpans(items) {
+      return items.map(item => `<span class="model-badge ${esc(item.className)}">${esc(item.label)}</span>`).join("");
+    }
+
+    function compareBadges(model, picks) {
+      const badges = badgeSpans(modelBadgeItems(model, picks));
+      return badges ? `<div class="compare-badges">${badges}</div>` : "";
     }
 
     function renderLeaderboard(run) {
@@ -1527,10 +1582,12 @@
       };
 
       const models = run.models || [];
+      const picks = modelPicks(run);
       compareModels.innerHTML = models.map(model => `
-        <label class="model-chip">
+        <label class="model-chip ${modelToneClasses(model, picks)}">
           <input type="checkbox" value="${esc(model)}" ${selectedCompareModels.has(model) ? "checked" : ""}>
-          ${esc(model)}
+          <span class="chip-text">${esc(model)}</span>
+          ${compareBadges(model, picks)}
         </label>
       `).join("");
       compareModels.querySelectorAll("input").forEach(input => {
@@ -1551,6 +1608,7 @@
     }
 
     function renderCompareCards(run) {
+      const picks = modelPicks(run);
       const results = (run.results || [])
         .filter(result => result.case_id === compareCaseId && selectedCompareModels.has(result.model))
         .sort((a, b) => (run.models || []).indexOf(a.model) - (run.models || []).indexOf(b.model));
@@ -1563,10 +1621,11 @@
         const errors = resultErrors(result);
         const summary = result.judge?.summary || result.stderr || "";
         return `
-          <article class="compare-card">
+          <article class="compare-card ${modelToneClasses(result.model, picks)}">
             <header>
               <strong>${esc(result.model)}</strong>
               <span>${esc(result.case_id)}</span>
+              ${compareBadges(result.model, picks)}
             </header>
             <div class="compare-meta">
               <span>score ${esc(result.score ?? 0)}</span>
